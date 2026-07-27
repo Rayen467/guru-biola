@@ -141,6 +141,50 @@ export function practiceSeries(
   return out;
 }
 
+// --- Cadangan / pindah perangkat ---
+// Semua catatan cuma ada di localStorage browser ini. Sekali hapus data situs
+// (atau ganti HP), hilang semua. Dua fungsi ini bikin datanya bisa dibawa.
+
+export function exportProgress(): string {
+  return JSON.stringify(
+    { app: "guru-biola", version: 1, exportedAt: new Date().toISOString(), progress: loadProgress() },
+    null,
+    2
+  );
+}
+
+export function importProgress(json: string): { ok: boolean; message: string } {
+  try {
+    const parsed = JSON.parse(json);
+    const incoming: Partial<Progress> = parsed?.progress ?? parsed;
+    if (!incoming || typeof incoming !== "object") {
+      return { ok: false, message: "Isinya bukan data Guru Biola." };
+    }
+    const merged = { ...emptyProgress(), ...incoming };
+    // Digabung, bukan ditimpa: kalau di perangkat ini ada latihan yang belum
+    // ada di berkasnya, jangan sampai kebuang.
+    const current = loadProgress();
+    merged.doneExercises = { ...current.doneExercises, ...merged.doneExercises };
+    merged.practiceSeconds = { ...current.practiceSeconds };
+    for (const [day, sec] of Object.entries(incoming.practiceSeconds ?? {})) {
+      merged.practiceSeconds[day] = Math.max(merged.practiceSeconds[day] ?? 0, sec);
+    }
+    merged.earTraining = {
+      correct: Math.max(current.earTraining.correct, merged.earTraining.correct),
+      total: Math.max(current.earTraining.total, merged.earTraining.total),
+      bestStreak: Math.max(current.earTraining.bestStreak, merged.earTraining.bestStreak),
+    };
+    merged.intonation = {
+      hits: Math.max(current.intonation.hits, merged.intonation.hits),
+      attempts: Math.max(current.intonation.attempts, merged.intonation.attempts),
+    };
+    saveProgress(merged);
+    return { ok: true, message: "Data berhasil digabung ke perangkat ini." };
+  } catch (e) {
+    return { ok: false, message: "Gagal baca berkas: " + String(e) };
+  }
+}
+
 export function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   if (m < 1) return seconds > 0 ? "<1 menit" : "0 menit";

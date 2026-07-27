@@ -254,5 +254,10 @@ export function usePitch(options: PitchOptions = {}) {
 
   useEffect(() => stop, [stop]);
 
-  return { ...state, start, stop };
+  // Stream mentahnya dibuka buat halaman /rekam (MediaRecorder). Sengaja lewat
+  // fungsi, bukan state: yang butuh cuma satu halaman, dan naruh MediaStream di
+  // state bikin render ulang percuma di semua halaman lain.
+  const getStream = useCallback(() => streamRef.current, []);
+
+  return { ...state, start, stop, getStream };
 }

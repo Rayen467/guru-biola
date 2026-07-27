@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CURRICULUM } from "@/lib/curriculum";
 import { SONGS } from "@/lib/songs";
 import {
   MIN_PRACTICE_SECONDS,
+  exportProgress,
   formatDuration,
+  importProgress,
   loadProgress,
   practiceSeries,
   practiceStats,
@@ -193,11 +195,89 @@ export default function StatistikPage() {
         )}
       </section>
 
+      <Backup onImported={() => {
+        const loaded = loadProgress();
+        setP(loaded);
+        setStats(practiceStats(loaded));
+      }} />
+
       <p className="text-xs text-muted">
         Data disimpan di localStorage browser ini. Ganti browser atau hapus data
-        situs = catatan hilang; gak ada server yang nyimpen apa-apa.
+        situs = catatan hilang; gak ada server yang nyimpen apa-apa. Makanya ada
+        tombol cadangan di atas.
       </p>
     </div>
+  );
+}
+
+// Cadangan: unduh JSON, atau muat berkas dari perangkat lain (digabung, bukan
+// ditimpa — lihat importProgress).
+function Backup({ onImported }: { onImported: () => void }) {
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const download = () => {
+    const blob = new Blob([exportProgress()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `guru-biola-progress-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMsg({ ok: true, text: "Berkas cadangan diunduh." });
+  };
+
+  const load = async (file: File) => {
+    const res = importProgress(await file.text());
+    setMsg({ ok: res.ok, text: res.message });
+    if (res.ok) onImported();
+  };
+
+  return (
+    <section className="rounded-xl border border-border-soft bg-surface p-5">
+      <h2 className="text-sm font-semibold text-accent-strong">
+        💾 Cadangan & pindah perangkat
+      </h2>
+      <p className="mt-1 text-xs text-muted">
+        Simpan catatan latihan lu jadi satu berkas. Berguna kalau mau pindah ke
+        HP, ganti browser, atau sekadar jaga-jaga sebelum bersih-bersih data
+        peramban.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={download}
+          className="rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-background hover:bg-accent-strong"
+        >
+          ⬇ Unduh cadangan
+        </button>
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="rounded-full bg-surface-2 px-4 py-1.5 text-xs text-foreground hover:bg-border-soft"
+        >
+          ⬆ Muat cadangan
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) load(f);
+            e.target.value = "";
+          }}
+        />
+        {msg && (
+          <span className={`text-xs ${msg.ok ? "text-good" : "text-bad"}`}>
+            {msg.text}
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-[11px] text-muted">
+        Memuat cadangan itu MENGGABUNG, bukan menimpa: latihan yang udah ada di
+        perangkat ini tetap aman, angka yang lebih besar yang dipakai.
+      </p>
+    </section>
   );
 }
 
