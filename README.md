@@ -2,6 +2,8 @@
 
 Guru privat biola pribadi — dari nol total sampai jalur Paganini. Web app Next.js dengan deteksi nada real-time lewat mic (algoritma McLeod via [pitchy](https://www.npmjs.com/package/pitchy)).
 
+**Versi online: https://rayen467.github.io/guru-biola/** (statis; Guru AI cuma jalan di versi lokal karena butuh server).
+
 ## Fitur
 
 | Halaman | Fungsi |
@@ -9,6 +11,8 @@ Guru privat biola pribadi — dari nol total sampai jalur Paganini. Web app Next
 | `/tuner` | Stem senar G-D-A-E. Jarum real-time, presisi cent, tombol nada contoh |
 | `/intonasi` | Latihan nada target: senar per senar + tangga nada. Tahan nada ±15 cent selama ~1 detik = kena |
 | `/kuping` | Ear training adaptif: tebak nada mana lebih tinggi, interval mengecil kalau jago |
+| `/ritme` | Latihan ketepatan tempo: gesek per ketukan, diukur meleset berapa milidetik (kecepetan/kelambatan) |
+| `/statistik` | Riwayat 30 hari, streak, akurasi per keterampilan |
 | `/metronome` | Metronom presisi (dijadwalkan ke clock audio, bukan timer JS). Tap tempo, birama, subdivisi, bar hening, tempo naik otomatis |
 | `/lagu` | Mode karaoke-biola: nada baru maju kalau dimainkan benar |
 | `/fingerboard` | Peta posisi jari (posisi 1), klik = dengar nadanya |
@@ -19,6 +23,17 @@ Guru privat biola pribadi — dari nol total sampai jalur Paganini. Web app Next
 Progress disimpan di localStorage browser (tanpa akun). Waktu latihan tercatat
 otomatis selama mic menyala (tuner/intonasi/lagu) — beranda menampilkan streak
 harian dan grafik 7 hari terakhir.
+
+### Deploy ulang ke GitHub Pages
+
+```bash
+npm run build:static
+```
+
+Lalu dorong isi `out/` ke branch `gh-pages` (Pages menyajikan dari branch itu).
+`scripts/build-static.mjs` memarkir `src/app/api` selama build — route handler
+POST tidak didukung `output: "export"` — dan menulis `out/.nojekyll` supaya
+folder `_next` tidak dibuang Jekyll.
 
 ### Metronom: kenapa tidak pakai `setInterval` biasa
 
