@@ -1,65 +1,250 @@
-import Image from "next/image";
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { CURRICULUM } from "@/lib/curriculum";
+import {
+  formatDuration,
+  loadProgress,
+  practiceStats,
+  type PracticeStats,
+  type Progress,
+} from "@/lib/progress";
+
+const DAILY_TARGET_SECONDS = 15 * 60; // 15 menit/hari — target minimum yang realistis
 
 export default function Home() {
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [stats, setStats] = useState<PracticeStats | null>(null);
+  useEffect(() => {
+    const p = loadProgress();
+    setProgress(p);
+    setStats(practiceStats(p));
+  }, []);
+
+  const totalExercises = CURRICULUM.reduce(
+    (n, lv) => n + lv.exercises.length,
+    0
+  );
+  const doneCount = progress
+    ? Object.values(progress.doneExercises).filter(Boolean).length
+    : 0;
+  const earAcc =
+    progress && progress.earTraining.total > 0
+      ? Math.round(
+          (progress.earTraining.correct / progress.earTraining.total) * 100
+        )
+      : null;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="space-y-8">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-bold">
+          Dari nol sampai <span className="text-accent-strong">Paganini</span> 👹
+        </h1>
+        <p className="max-w-2xl text-muted">
+          Ini guru privat biola lu. Buta nada? Gak bisa ngepasin senar? Justru
+          itu kerjaan komputer — komputer gak pernah buta nada. Lu tinggal
+          latihan, app ini yang jadi wasit.
+        </p>
+      </header>
+
+      <PracticeCard stats={stats} />
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Latihan selesai" value={`${doneCount} / ${totalExercises}`} />
+        <Stat
+          label="Akurasi kuping"
+          value={earAcc === null ? "belum latihan" : `${earAcc}%`}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <Stat
+          label="Intonasi kena"
+          value={
+            progress && progress.intonation.attempts > 0
+              ? `${progress.intonation.hits} / ${progress.intonation.attempts}`
+              : "belum latihan"
+          }
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">Rutinitas harian (15–30 menit)</h2>
+        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Card
+            href="/tuner"
+            step="1"
+            title="Stem dulu"
+            desc="Wajib tiap mulai. Jarum hijau = senar pas."
+            emoji="🎯"
+          />
+          <Card
+            href="/intonasi"
+            step="2"
+            title="Latihan intonasi"
+            desc="Main nada target, app yang nilai meleset berapa cent."
+            emoji="🎻"
+          />
+          <Card
+            href="/kuping"
+            step="3"
+            title="Latih kuping"
+            desc="Buta nada bisa dilatih. 10 soal per hari."
+            emoji="👂"
+          />
+          <Card
+            href="/metronome"
+            step="4"
+            title="Rapiin tempo"
+            desc="Gesek bareng metronom. Nada bener, tempo goyang = tetap amatir."
+            emoji="🥁"
+          />
+          <Card
+            href="/kurikulum"
+            step="5"
+            title="Lanjut kurikulum"
+            desc="Level lu sekarang, latihan apa hari ini."
+            emoji="🗺️"
+          />
+        </ol>
+      </section>
+
+      <section className="rounded-xl border border-border-soft bg-surface p-5">
+        <h2 className="mb-1 text-xl font-semibold">🧑‍🏫 Bingung? Tanya Guru AI</h2>
+        <p className="mb-3 text-sm text-muted">
+          Guru AI tahu progress lu dan kurikulumnya. Tanya apa aja: cara pegang
+          bow, kenapa suara berdecit, harus latihan apa hari ini.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/guru"
+            className="inline-block rounded-full bg-accent px-4 py-2 text-sm font-semibold text-background transition-colors hover:bg-accent-strong"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Buka ruang guru →
+          </Link>
+          <Link
+            href="/silabus"
+            className="inline-block rounded-full bg-surface-2 px-4 py-2 text-sm text-foreground transition-colors hover:bg-border-soft"
           >
-            Documentation
-          </a>
+            📋 Peta silabus ujian resmi
+          </Link>
         </div>
-      </main>
+      </section>
     </div>
+  );
+}
+
+// Waktu latihan kecatat otomatis tiap mic nyala (tuner/intonasi/lagu).
+function PracticeCard({ stats }: { stats: PracticeStats | null }) {
+  const today = stats?.todaySeconds ?? 0;
+  const pct = Math.min(100, (today / DAILY_TARGET_SECONDS) * 100);
+  const done = today >= DAILY_TARGET_SECONDS;
+  const streak = stats?.streak ?? 0;
+  const maxWeek = Math.max(DAILY_TARGET_SECONDS, ...(stats?.last7 ?? []).map((d) => d.seconds));
+
+  return (
+    <section className="rounded-xl border border-border-soft bg-surface p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-muted">
+            Latihan hari ini
+          </div>
+          <div className="mt-1 text-3xl font-bold text-accent-strong">
+            {formatDuration(today)}
+            <span className="ml-2 text-sm font-normal text-muted">
+              / target 15 menit
+            </span>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold">
+            {streak > 0 ? `🔥 ${streak} hari` : "🌱 mulai hari ini"}
+          </div>
+          <div className="text-xs text-muted">
+            {streak > 0 ? "streak berturut-turut" : "belum ada streak jalan"}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={`h-full transition-all ${done ? "bg-good" : "bg-accent"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <div className="mt-4 flex items-end justify-between gap-2">
+        {(stats?.last7 ?? []).map((d, i) => {
+          const h = d.seconds > 0 ? Math.max(6, (d.seconds / maxWeek) * 44) : 3;
+          const isToday = i === 6;
+          return (
+            <div key={d.key} className="flex flex-1 flex-col items-center gap-1">
+              <div
+                title={`${d.key}: ${formatDuration(d.seconds)}`}
+                className={`w-full rounded-sm ${
+                  d.seconds >= DAILY_TARGET_SECONDS
+                    ? "bg-good"
+                    : d.seconds > 0
+                      ? "bg-accent"
+                      : "bg-surface-2"
+                }`}
+                style={{ height: `${h}px` }}
+              />
+              <span
+                className={`text-[10px] ${isToday ? "text-foreground" : "text-muted"}`}
+              >
+                {d.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-xs text-muted">
+        Kecatat otomatis selama mic nyala di tuner, intonasi, atau mode lagu.
+        {stats && stats.totalSeconds > 0 && (
+          <> Total sejauh ini: {formatDuration(stats.totalSeconds)} dalam {stats.activeDays} hari.</>
+        )}
+      </p>
+    </section>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border-soft bg-surface p-4">
+      <div className="text-xs uppercase tracking-wide text-muted">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-accent-strong">{value}</div>
+    </div>
+  );
+}
+
+function Card({
+  href,
+  step,
+  title,
+  desc,
+  emoji,
+}: {
+  href: string;
+  step: string;
+  title: string;
+  desc: string;
+  emoji: string;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="block h-full rounded-xl border border-border-soft bg-surface p-4 transition-colors hover:border-accent"
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-2xl">{emoji}</span>
+          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">
+            langkah {step}
+          </span>
+        </div>
+        <div className="font-semibold">{title}</div>
+        <div className="mt-1 text-sm text-muted">{desc}</div>
+      </Link>
+    </li>
   );
 }
