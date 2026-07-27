@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePitch } from "@/lib/usePitch";
 import { useMetronome, type MetronomeSettings } from "@/lib/metronome";
+import { useSensitivity } from "@/lib/micSettings";
 import { updateProgress } from "@/lib/progress";
 import BowFeedback from "@/components/BowFeedback";
 
@@ -38,8 +39,20 @@ export default function RitmePage() {
   };
 
   const metro = useMetronome(settings);
-  const { onsetAt, volumeDb, peak, freq, active, error, start, stop } =
-    usePitch();
+  const sensitivity = useSensitivity();
+  const {
+    onsetAt,
+    volumeDb,
+    peak,
+    freq,
+    active,
+    error,
+    noisy,
+    calibrating,
+    noiseFloorDb,
+    start,
+    stop,
+  } = usePitch({ sensitivity });
 
   const [hits, setHits] = useState<Hit[]>([]);
   const [last, setLast] = useState<Hit | null>(null);
@@ -317,6 +330,9 @@ export default function RitmePage() {
             freq={freq}
             volumeDb={volumeDb}
             peak={peak}
+            noisy={noisy}
+            calibrating={calibrating}
+            noiseFloorDb={noiseFloorDb}
           />
         </div>
 

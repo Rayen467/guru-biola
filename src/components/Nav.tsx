@@ -15,6 +15,7 @@ const LINKS = [
   { href: "/lagu", label: "Lagu", emoji: "🎵" },
   { href: "/fingerboard", label: "Fingerboard", emoji: "🖐️" },
   { href: "/statistik", label: "Statistik", emoji: "📊" },
+  { href: "/mic", label: "Diagnosa Mic", emoji: "🔬" },
   { href: "/guru", label: "Guru AI", emoji: "🧑‍🏫" },
 ];
 

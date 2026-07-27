@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePitch } from "@/lib/usePitch";
 import { useDrone } from "@/lib/drone";
+import { useSensitivity } from "@/lib/micSettings";
 import {
   centsBetween,
   freqToNote,
@@ -110,8 +111,20 @@ const FAR_CENTS = 100; // lebih dari ini = kemungkinan salah senar/jari, bukan g
 const OPEN_STRING_MIDIS = [55, 62, 69, 76];
 
 export default function IntonasiPage() {
-  const { freq, clarity, volumeDb, peak, active, error, start, stop } =
-    usePitch();
+  const sensitivity = useSensitivity();
+  const {
+    freq,
+    clarity,
+    volumeDb,
+    peak,
+    active,
+    error,
+    noisy,
+    calibrating,
+    noiseFloorDb,
+    start,
+    stop,
+  } = usePitch({ sensitivity });
   const drone = useDrone();
   const a4 = useA4();
   const [setIdx, setSetIdx] = useState(0);
@@ -418,6 +431,9 @@ export default function IntonasiPage() {
             freq={freq}
             volumeDb={volumeDb}
             peak={peak}
+            noisy={noisy}
+            calibrating={calibrating}
+            noiseFloorDb={noiseFloorDb}
           />
         </div>
 

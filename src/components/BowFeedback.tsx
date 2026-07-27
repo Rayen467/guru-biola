@@ -1,22 +1,29 @@
 "use client";
 
 // Pelatih gesekan: nerjemahin sinyal mic jadi instruksi bowing.
-// Dipakai di tuner, intonasi, dan mode lagu.
+// Dipakai di tuner, intonasi, mode lagu, dan latihan ritme.
 
 const SILENT_DB = -55; // di bawah ini = senyap / nyaris gak ada suara
 const QUIET_DB = -38; // di bawah ini = ada suara tapi kekecilan buat dianalisis
 const CLIP_PEAK = 0.97; // di atas ini = pecah/clipping
+const LOUD_ROOM_DB = -45; // suara latar di atas ini = ruangannya berisik
 
 export default function BowFeedback({
   active,
   freq,
   volumeDb,
   peak,
+  noisy = false,
+  calibrating = false,
+  noiseFloorDb = -100,
 }: {
   active: boolean;
   freq: number | null;
   volumeDb: number;
   peak: number;
+  noisy?: boolean;
+  calibrating?: boolean;
+  noiseFloorDb?: number;
 }) {
   if (!active) return null;
 
@@ -25,7 +32,12 @@ export default function BowFeedback({
   let tip: string | null;
   let tone: "good" | "warn" | "muted";
 
-  if (peak > CLIP_PEAK) {
+  if (calibrating) {
+    emoji = "🎚️";
+    title = "Ngukur suara ruangan… diem bentar";
+    tip = "Sedetik doang. Ini yang bikin app bisa bedain gesekan lu dari kipas, TV, atau orang ngobrol.";
+    tone = "muted";
+  } else if (peak > CLIP_PEAK) {
     emoji = "📢";
     title = "KEGEDEAN — suaranya pecah di mic";
     tip = "Jauhin biola dari mic dikit, atau gesek lebih lembut. Suara pecah = deteksi ngaco.";
@@ -35,6 +47,14 @@ export default function BowFeedback({
     title = "Suara jernih, kebaca jelas";
     tip = null;
     tone = "good";
+  } else if (noisy) {
+    emoji = "🔊";
+    title = "Ada suara, TAPI bukan nada biola";
+    tip =
+      noiseFloorDb > LOUD_ROOM_DB
+        ? "Ruangannya berisik (kipas/AC/TV/orang ngomong). Matiin sumber suaranya, atau deketin mic ke biola — nada cuma dibaca kalau jelas lebih keras dari suara latar."
+        : "Yang masuk mic bukan nada bertahan. Gesek satu senar panjang dan stabil, jangan ketok-ketok atau ngomong.";
+    tone = "warn";
   } else if (volumeDb < SILENT_DB) {
     emoji = "🔇";
     title = "Senyap — gak ada suara masuk";

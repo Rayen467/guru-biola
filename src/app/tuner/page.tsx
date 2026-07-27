@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePitch } from "@/lib/usePitch";
 import {
@@ -15,6 +16,12 @@ import {
 } from "@/lib/notes";
 import { playTone } from "@/lib/tone";
 import BowFeedback from "@/components/BowFeedback";
+import {
+  DEFAULT_SENSITIVITY,
+  sensitivityLabel,
+  setSensitivity,
+  useSensitivity,
+} from "@/lib/micSettings";
 
 const IN_TUNE = 5; // ±cent dianggap pas
 const FINE_TUNER_MAX = 30; // di bawah ini cukup fine tuner, di atasnya pasak
@@ -28,8 +35,20 @@ interface Reading {
 }
 
 export default function TunerPage() {
-  const { freq, clarity, volumeDb, peak, active, error, start, stop } =
-    usePitch();
+  const sensitivity = useSensitivity();
+  const {
+    freq,
+    clarity,
+    volumeDb,
+    peak,
+    active,
+    error,
+    noisy,
+    calibrating,
+    noiseFloorDb,
+    start,
+    stop,
+  } = usePitch({ sensitivity });
   const a4 = useA4();
   const [reading, setReading] = useState<Reading | null>(null);
   const hist = useRef<number[]>([]);
@@ -234,6 +253,9 @@ export default function TunerPage() {
             freq={freq}
             volumeDb={volumeDb}
             peak={peak}
+            noisy={noisy}
+            calibrating={calibrating}
+            noiseFloorDb={noiseFloorDb}
           />
         </div>
 
@@ -247,6 +269,56 @@ export default function TunerPage() {
         >
           {active ? "■ Stop mic" : "🎤 Nyalain mic"}
         </button>
+      </div>
+
+      {/* Sensitivitas mic — kepakai di semua halaman yang dengerin biola */}
+      <div className="rounded-xl border border-border-soft bg-surface p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium">
+              🎚️ Sensitivitas mic: {sensitivityLabel(sensitivity)}
+            </div>
+            <div className="mt-0.5 max-w-md text-xs text-muted">
+              App cuma baca nada yang jelas lebih keras dari suara latar
+              ruangan. Kalau suara lain (kipas, TV, ngobrol) masih ke-deteksi,
+              geser ke KIRI. Kalau gesekan lu gak kebaca padahal ruangan sepi,
+              geser ke KANAN. Mau lihat alasan detailnya?{" "}
+              <Link href="/mic" className="text-accent-strong underline">
+                buka diagnosa mic
+              </Link>
+              .
+              {active && noiseFloorDb > -100 && (
+                <>
+                  {" "}
+                  Suara latar sekarang:{" "}
+                  <b className="text-foreground">
+                    {Math.round(noiseFloorDb)} dB
+                  </b>
+                  {noiseFloorDb > -45 && " — ruangannya lumayan berisik."}
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(sensitivity * 100)}
+              onChange={(e) => setSensitivity(Number(e.target.value) / 100)}
+              className="w-40 accent-[var(--accent)]"
+              aria-label="Sensitivitas mic"
+            />
+            {sensitivity !== DEFAULT_SENSITIVITY && (
+              <button
+                onClick={() => setSensitivity(DEFAULT_SENSITIVITY)}
+                className="rounded-full bg-surface-2 px-3 py-1 text-xs text-muted hover:text-foreground"
+              >
+                normal
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Kalibrasi A4 — kepakai di semua halaman (intonasi, lagu, fingerboard) */}

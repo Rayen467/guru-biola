@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePitch } from "@/lib/usePitch";
+import { useSensitivity } from "@/lib/micSettings";
 import { midiToFreq, midiToName } from "@/lib/notes";
 import { playTone } from "@/lib/tone";
 import { updateProgress } from "@/lib/progress";
@@ -18,7 +19,19 @@ const WRONG_CENTS = 60; // lebih meleset dari ini = jelas salah nada
 const WRONG_MS = 800; // salah nada selama ini = kehitung mblero
 
 export default function LaguPage() {
-  const { freq, volumeDb, peak, active, error, start, stop } = usePitch();
+  const sensitivity = useSensitivity();
+  const {
+    freq,
+    volumeDb,
+    peak,
+    active,
+    error,
+    noisy,
+    calibrating,
+    noiseFloorDb,
+    start,
+    stop,
+  } = usePitch({ sensitivity });
   const [songIdx, setSongIdx] = useState(0);
   const [noteIdx, setNoteIdx] = useState(0);
   const [misses, setMisses] = useState(0);
@@ -335,6 +348,9 @@ export default function LaguPage() {
                   freq={freq}
                   volumeDb={volumeDb}
                   peak={peak}
+                  noisy={noisy}
+                  calibrating={calibrating}
+                  noiseFloorDb={noiseFloorDb}
                 />
               </div>
 
