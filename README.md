@@ -13,6 +13,7 @@ Guru privat biola pribadi — dari nol total sampai jalur Paganini. Web app Next
 | `/kuping` | Ear training adaptif: tebak nada mana lebih tinggi, interval mengecil kalau jago |
 | `/ritme` | Latihan ketepatan tempo: gesek per ketukan, diukur meleset berapa milidetik (kecepetan/kelambatan) |
 | `/statistik` | Riwayat 30 hari, streak, akurasi per keterampilan |
+| `/mic` | Diagnosa deteksi: level, suara latar, SNR, kejernihan, skor harmonik, kerataan spektrum + alasan diterima/ditolak |
 | `/metronome` | Metronom presisi (dijadwalkan ke clock audio, bukan timer JS). Tap tempo, birama, subdivisi, bar hening, tempo naik otomatis |
 | `/lagu` | Mode karaoke-biola: nada baru maju kalau dimainkan benar |
 | `/fingerboard` | Peta posisi jari (posisi 1), klik = dengar nadanya |
@@ -34,6 +35,30 @@ Lalu dorong isi `out/` ke branch `gh-pages` (Pages menyajikan dari branch itu).
 `scripts/build-static.mjs` memarkir `src/app/api` selama build — route handler
 POST tidak didukung `output: "export"` — dan menulis `out/.nojekyll` supaya
 folder `_next` tidak dibuang Jekyll.
+
+### Deteksi: kenapa bukan cuma algoritma pitch
+
+Algoritma pencari nada (MPM lewat pitchy) SELALU mengembalikan angka — diberi
+suara kipas pun ia menjawab. Karena itu `src/lib/detector.ts` menguji ulang
+kandidatnya lewat lima lapis: bandpass 165 Hz–5 kHz, ambang level absolut,
+jangkauan biola (180–3200 Hz), porsi energi pada deret harmonik, dan kestabilan
+nada ±0,2 detik terhadap median (supaya vibrato lebar tidak dianggap goyah).
+
+Skor harmonik dihitung dalam domain ENERGI, bukan magnitudo: noise pita lebar
+itu pelan per-bin tetapi tersebar di ribuan bin, dan penjumlahan magnitudo
+membuatnya mengalahkan puncak harmonik — akibatnya biola yang dimainkan di
+dekat AC ikut ditolak.
+
+Modul ini sengaja bebas Web Audio dan React supaya bisa diuji di Node:
+
+```bash
+node --experimental-strip-types scripts/test-detector.mjs
+```
+
+Uji itu mensintesis nada biola (termasuk gesekan pelan, vibrato lebar,
+biola+kipas, biola+suara orang) dan kasus yang harus ditolak (noise putih,
+kipas, suara orang, klik metronom, ketokan, musik dari speaker) pada tiga
+setelan sensitivitas: akurasi rata-rata 99% dari 27 kasus.
 
 ### Metronom: kenapa tidak pakai `setInterval` biasa
 
