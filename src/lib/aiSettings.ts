@@ -55,15 +55,30 @@ export const AI_PRESETS = [
   },
 ] as const;
 
+// Alamat penerus bawaan, ditanam waktu build (NEXT_PUBLIC_AI_PROXY).
+// Ini BUKAN rahasia — cuma alamat, dan penerusnya sendiri cuma mau melayani
+// permintaan dari alamat app ini. Gunanya: begitu penerusnya sudah jalan,
+// Guru AI langsung hidup di HP mana pun tanpa siapa pun perlu ngisi setelan.
+export const DEFAULT_PROXY = process.env.NEXT_PUBLIC_AI_PROXY ?? "";
+
 const EMPTY: AiMeta = { baseUrl: "", model: "", proxyUrl: "" };
 
 export function getAiMeta(): AiMeta {
-  if (typeof window === "undefined") return EMPTY;
+  const base: AiMeta = { ...EMPTY, proxyUrl: DEFAULT_PROXY };
+  if (typeof window === "undefined") return base;
   try {
     const raw = localStorage.getItem(META_KEY);
-    return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY;
+    if (!raw) return base;
+    const saved = JSON.parse(raw) as Partial<AiMeta>;
+    // Setelan sendiri menang atas bawaan — tapi kalau kosong, jangan sampai
+    // menghapus bawaan yang sudah bekerja.
+    return {
+      baseUrl: saved.baseUrl ?? base.baseUrl,
+      model: saved.model ?? base.model,
+      proxyUrl: saved.proxyUrl || base.proxyUrl,
+    };
   } catch {
-    return EMPTY;
+    return base;
   }
 }
 

@@ -13,8 +13,12 @@ const nextConfig: NextConfig = isExport
       basePath,
       trailingSlash: true,
       images: { unoptimized: true },
-      // Dipakai kode klien buat nyusun path absolut (service worker, manifest).
-      env: { NEXT_PUBLIC_BASE_PATH: basePath },
+      // Dipakai kode klien buat nyusun path absolut (service worker, manifest)
+      // dan alamat penerus AI bawaan (bukan rahasia — lihat lib/aiSettings.ts).
+      env: {
+        NEXT_PUBLIC_BASE_PATH: basePath,
+        NEXT_PUBLIC_AI_PROXY: process.env.NEXT_PUBLIC_AI_PROXY ?? "",
+      },
     }
   : { env: { NEXT_PUBLIC_BASE_PATH: "" } };
 

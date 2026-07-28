@@ -16,6 +16,48 @@ export interface Song {
 
 const n = (midi: number, beats = 1): SongNote => ({ midi, beats });
 
+// --- Lagu hasil transkrip sendiri ---
+// Disimpan terpisah dari daftar bawaan supaya hasil dengar-sendiri (yang bisa
+// meleset) tidak tercampur jadi seolah materi resmi.
+
+const CUSTOM_KEY = "guru-biola-lagu-sendiri";
+
+export function loadCustomSongs(): Song[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY);
+    return raw ? (JSON.parse(raw) as Song[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomSong(song: Song) {
+  const all = loadCustomSongs().filter((s) => s.id !== song.id);
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify([...all, song]));
+}
+
+export function deleteCustomSong(id: string) {
+  localStorage.setItem(
+    CUSTOM_KEY,
+    JSON.stringify(loadCustomSongs().filter((s) => s.id !== id))
+  );
+}
+
+// Potong deretan not jadi frasa 8 not biar kebaca per baris.
+export function notesToSong(
+  id: string,
+  title: string,
+  notes: { midi: number; beats: number }[],
+  desc: string
+): Song {
+  const phrases: SongNote[][] = [];
+  for (let i = 0; i < notes.length; i += 8) {
+    phrases.push(notes.slice(i, i + 8).map((x) => ({ midi: x.midi, beats: x.beats })));
+  }
+  return { id, title, desc, level: "Hasil transkrip", phrases };
+}
+
 export const SONGS: Song[] = [
   {
     id: "tangga-a",

@@ -1,0 +1,25 @@
+# Konfigurasi penerus (proxy) Guru AI di Cloudflare Workers.
+#
+# Kenapa proxy: versi online app ini statis, jadi tidak ada tempat menyimpan
+# rahasia. Dengan penerus ini, API key duduk di Cloudflare — browser cuma tahu
+# alamatnya. HP hilang atau dipinjam, tidak ada yang bisa diambil.
+#
+# Cara pakai (dijalankan dari folder proxy/):
+#   1. npx wrangler login                 -> buka browser, izinkan (akun kamu sendiri)
+#   2. npx wrangler deploy                -> hasilnya alamat https://...workers.dev
+#   3. npx wrangler secret put AI_API_KEY -> tempel key, ENTER (tidak tersimpan di repo)
+#
+# Key TIDAK pernah ditulis di file ini. `secret put` menyimpannya terenkripsi
+# di Cloudflare, dan hanya Worker yang bisa membacanya saat berjalan.
+
+name = "guru-biola-ai"
+main = "cloudflare-worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# Aman ditulis di sini — ini bukan rahasia.
+AI_BASE_URL = "https://apihub.agnes-ai.com/v1"
+AI_MODEL = "agnes-2.0-flash"
+# Hanya alamat ini yang boleh memanggil penerus. Tanpa batas ini, alamat yang
+# bocor berarti kuota kamu bisa dipakai siapa saja.
+ALLOW_ORIGIN = "https://rayen467.github.io"

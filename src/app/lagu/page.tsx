@@ -1,12 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePitch } from "@/lib/usePitch";
 import { useSensitivity } from "@/lib/micSettings";
 import { midiToFreq, midiToName } from "@/lib/notes";
 import { playTone } from "@/lib/tone";
 import { updateProgress } from "@/lib/progress";
-import { SONGS, fingerHint } from "@/lib/songs";
+import {
+  SONGS,
+  deleteCustomSong,
+  fingerHint,
+  loadCustomSongs,
+  type Song,
+} from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
 import { useSessionEval } from "@/lib/sessionEval";
@@ -43,6 +50,11 @@ export default function LaguPage() {
     reason,
   });
   const [songIdx, setSongIdx] = useState(0);
+  // Lagu hasil transkrip sendiri ikut nimbrung di daftar, tapi ditandai —
+  // hasil dengar-sendiri bisa meleset, jangan sampai dikira materi resmi.
+  const [customSongs, setCustomSongs] = useState<Song[]>([]);
+  useEffect(() => setCustomSongs(loadCustomSongs()), []);
+  const allSongs = [...SONGS, ...customSongs];
   const [noteIdx, setNoteIdx] = useState(0);
   const [misses, setMisses] = useState(0);
   const [finished, setFinished] = useState(false);
@@ -56,7 +68,7 @@ export default function LaguPage() {
   const rearmed = useRef(true); // false = nada berulang nunggu gesekan baru
   const previewTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const song = SONGS[songIdx];
+  const song = allSongs[Math.min(songIdx, allSongs.length - 1)] ?? SONGS[0];
   const flat = useMemo(() => song.phrases.flat(), [song]);
   const target = flat[noteIdx];
   const targetFreq = target ? midiToFreq(target.midi) : 0;
@@ -201,20 +213,44 @@ export default function LaguPage() {
       </header>
 
       <div className="flex flex-wrap gap-2">
-        {SONGS.map((s, i) => (
+        {allSongs.map((s, i) => (
           <button
             key={s.id}
             onClick={() => reset(i)}
-            className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+            className={`press rounded-full px-3 py-1.5 text-xs ${
               i === songIdx
                 ? "bg-accent font-semibold text-background"
                 : "bg-surface-2 text-muted hover:text-foreground"
             }`}
           >
+            {i >= SONGS.length && "🎼 "}
             {s.title}
           </button>
         ))}
       </div>
+
+      {songIdx >= SONGS.length && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/10 p-3 text-xs">
+          <span>
+            🎼 Ini lagu hasil transkrip sendiri — bisa ada nada yang meleset.
+            Perbaiki dulu di{" "}
+            <Link href="/transkrip" className="text-accent-strong underline">
+              halaman transkrip
+            </Link>{" "}
+            kalau ada yang aneh.
+          </span>
+          <button
+            onClick={() => {
+              deleteCustomSong(song.id);
+              setCustomSongs(loadCustomSongs());
+              reset(0);
+            }}
+            className="press rounded-full bg-surface-2 px-3 py-1 text-muted hover:text-foreground"
+          >
+            hapus lagu ini
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-bad/40 bg-bad/10 p-3 text-sm text-bad">
