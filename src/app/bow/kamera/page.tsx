@@ -9,6 +9,7 @@ import {
   type HandPoint,
   type HandReading,
 } from "@/lib/bowHand";
+import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 
 // Cek pegangan bow pakai kamera.
 //
@@ -36,6 +37,17 @@ export default function BowKameraPage() {
   const [reps, setReps] = useState(0);
   const [drill, setDrill] = useState<"cek" | "pushup">("cek");
   const [holdPct, setHoldPct] = useState(0);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const tallyRef = useRef({
+    frames: 0,
+    ok: {} as Record<string, number>,
+    labels: {} as Record<string, string>,
+    fixes: {} as Record<string, string>,
+    thumbSum: 0,
+    pinkySum: 0,
+    scoreSum: 0,
+    startedAt: 0,
+  });
 
   const stop = useCallback(() => {
     runningRef.current = false;
@@ -44,6 +56,7 @@ export default function BowKameraPage() {
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setStatus("idle");
+    setAnalysis(buildHandAnalysis(tallyRef.current, counterRef.current.reps));
   }, []);
 
   const start = useCallback(async () => {
@@ -83,6 +96,17 @@ export default function BowKameraPage() {
 
       counterRef.current.reset();
       holdRef.current = { okFrames: 0, total: 0 };
+      tallyRef.current = {
+        frames: 0,
+        ok: {},
+        labels: {},
+        fixes: {},
+        thumbSum: 0,
+        pinkySum: 0,
+        scoreSum: 0,
+        startedAt: performance.now(),
+      };
+      setAnalysis(null);
       setReps(0);
       runningRef.current = true;
       setStatus("live");
@@ -114,6 +138,17 @@ export default function BowKameraPage() {
             c.total++;
             if (r.score >= 80) c.okFrames++;
             setHoldPct(Math.round((c.okFrames / Math.max(1, c.total)) * 100));
+
+            const t = tallyRef.current;
+            t.frames++;
+            t.scoreSum += r.score;
+            t.thumbSum += r.thumbAngle;
+            t.pinkySum += r.pinkyAngle;
+            for (const chk of r.checks) {
+              if (chk.ok) t.ok[chk.id] = (t.ok[chk.id] ?? 0) + 1;
+              t.labels[chk.id] = chk.label;
+              t.fixes[chk.id] = chk.fix;
+            }
 
             if (counterRef.current.update(r.thumbAngle)) {
               setReps(counterRef.current.reps);
@@ -258,6 +293,8 @@ export default function BowKameraPage() {
         )}
       </div>
 
+      <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
+
       {/* Saran utama */}
       {worst && status === "live" && (
         <div className="animate-fade-up rounded-xl border border-accent/40 bg-accent/10 p-4">
@@ -313,6 +350,102 @@ export default function BowKameraPage() {
       </div>
     </div>
   );
+}
+
+// Analisis akhir: porsi waktu tiap bagian pegangan bener, plus rata-rata
+// sudut jempol — angka itu yang paling langsung nunjukin kebiasaan ngunci.
+function buildHandAnalysis(
+  t: {
+    frames: number;
+    ok: Record<string, number>;
+    labels: Record<string, string>;
+    fixes: Record<string, string>;
+    thumbSum: number;
+    pinkySum: number;
+    scoreSum: number;
+    startedAt: number;
+  },
+  reps: number
+): Analysis | null {
+  const seconds = (performance.now() - t.startedAt) / 1000;
+  if (t.frames < 40 || seconds < 6) return null;
+
+  const rows = Object.keys(t.labels).map((id) => ({
+    id,
+    label: t.labels[id],
+    fix: t.fixes[id],
+    pct: Math.round(((t.ok[id] ?? 0) / t.frames) * 100),
+  }));
+  rows.sort((a, b) => a.pct - b.pct);
+
+  const avgThumb = Math.round(t.thumbSum / t.frames);
+  const avgPinky = Math.round(t.pinkySum / t.frames);
+  const avg = Math.round(t.scoreSum / t.frames);
+  const verdicts = [];
+
+  verdicts.push({
+    icon: avgThumb < 165 ? "👍" : "🔒",
+    title: `Jempol rata-rata ${avgThumb}°`,
+    detail:
+      avgThumb < 155
+        ? "Jempol lu nekuk dan hidup. Ini fondasi semua kontrol bow."
+        : avgThumb < 165
+          ? "Nekuk, tapi tipis. Coba tekuk sedikit lagi sampai kuku jempol kelihatan miring."
+          : "Jempol lu praktis lurus sepanjang sesi — ini yang bikin bunyi kasar dan tangan cepat pegal. Kerjain bow hold push-up 10 rep/hari sebelum latihan lain.",
+    tone: (avgThumb < 155 ? "good" : avgThumb < 165 ? "warn" : "bad") as
+      | "good"
+      | "warn"
+      | "bad",
+  });
+
+  verdicts.push({
+    icon: avgPinky < 168 ? "🤙" : "🪂",
+    title: `Kelingking rata-rata ${avgPinky}°`,
+    detail:
+      avgPinky < 168
+        ? "Melengkung — berat bow di pangkal masih bisa lu imbangi."
+        : "Kelingking cenderung lurus. Latihan 'rocket': tegakin bow, tahan cuma pakai jempol + kelingking, 20 detik.",
+    tone: (avgPinky < 168 ? "good" : "warn") as "good" | "warn",
+  });
+
+  const worst = rows[0];
+  if (worst && worst.pct < 70) {
+    verdicts.push({
+      icon: "🎯",
+      title: `Paling sering lepas: ${worst.label} (bener ${worst.pct}% waktu)`,
+      detail: worst.fix,
+      tone: (worst.pct < 40 ? "bad" : "warn") as "bad" | "warn",
+    });
+  }
+
+  const solid = rows.filter((r) => r.pct >= 85).map((r) => r.label);
+  if (solid.length) {
+    verdicts.push({
+      icon: "✅",
+      title: `Konsisten bener: ${solid.join(", ")}`,
+      detail: "Jangan diubah. Fokus energi lu ke yang persentasenya kecil.",
+      tone: "good" as const,
+    });
+  }
+
+  if (reps > 0) {
+    verdicts.push({
+      icon: "💪",
+      title: `${reps} rep bow hold push-up`,
+      detail:
+        reps >= 10
+          ? "Target harian kelar. Ini latihan yang paling cepat ngilangin jempol kaku."
+          : `Target 10 rep. Kurang ${10 - reps} lagi.`,
+      tone: (reps >= 10 ? "good" : "warn") as "good" | "warn",
+    });
+  }
+
+  return {
+    score: avg,
+    headline: "Analisis pegangan bow",
+    subline: `${Math.round(seconds)} detik terpantau · rata-rata ${avg}% cek lolos`,
+    verdicts,
+  };
 }
 
 function drawHand(

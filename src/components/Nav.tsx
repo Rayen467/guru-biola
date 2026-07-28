@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Beranda", emoji: "🏠" },
+  { href: "/latihan", label: "Sesi Latihan", emoji: "🗓️" },
   { href: "/kurikulum", label: "Kurikulum", emoji: "🗺️" },
   { href: "/silabus", label: "Silabus", emoji: "📋" },
   { href: "/tuner", label: "Tuner", emoji: "🎯" },

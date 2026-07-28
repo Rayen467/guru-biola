@@ -8,6 +8,7 @@ import {
   type Point,
   type PostureReading,
 } from "@/lib/posture";
+import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 
 // Pelatih postur pakai kamera.
 //
@@ -53,6 +54,26 @@ export default function PosturPage() {
   const [reading, setReading] = useState<PostureReading | null>(null);
   const [leftHanded, setLeftHanded] = useState(false);
   const [best, setBest] = useState<number | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  // Berapa lama tiap cek BERTAHAN bener sepanjang sesi. Satu frame bagus itu
+  // gampang; yang dinilai porsi waktunya.
+  const tallyRef = useRef<{
+    frames: number;
+    okByCheck: Record<string, number>;
+    seenByCheck: Record<string, number>;
+    labels: Record<string, string>;
+    fixes: Record<string, string>;
+    scoreSum: number;
+    startedAt: number;
+  }>({
+    frames: 0,
+    okByCheck: {},
+    seenByCheck: {},
+    labels: {},
+    fixes: {},
+    scoreSum: 0,
+    startedAt: 0,
+  });
   const leftHandedRef = useRef(false);
   leftHandedRef.current = leftHanded;
 
@@ -63,6 +84,7 @@ export default function PosturPage() {
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setStatus("idle");
+    setAnalysis(buildPostureAnalysis(tallyRef.current));
   }, []);
 
   const start = useCallback(async () => {
@@ -103,6 +125,16 @@ export default function PosturPage() {
       await video.play();
 
       trackRef.current = [];
+      tallyRef.current = {
+        frames: 0,
+        okByCheck: {},
+        seenByCheck: {},
+        labels: {},
+        fixes: {},
+        scoreSum: 0,
+        startedAt: performance.now(),
+      };
+      setAnalysis(null);
       runningRef.current = true;
       setStatus("live");
 
@@ -142,6 +174,17 @@ export default function PosturPage() {
             const r = assess(pose, bow, leftHandedRef.current);
             setReading(r);
             setBest((b) => (b === null ? r.score : Math.max(b, r.score)));
+
+            const t = tallyRef.current;
+            t.frames++;
+            t.scoreSum += r.score;
+            for (const c of r.checks) {
+              if (!c.measurable) continue;
+              t.seenByCheck[c.id] = (t.seenByCheck[c.id] ?? 0) + 1;
+              if (c.ok) t.okByCheck[c.id] = (t.okByCheck[c.id] ?? 0) + 1;
+              t.labels[c.id] = c.label;
+              t.fixes[c.id] = c.fix;
+            }
           }
         }
         rafRef.current = requestAnimationFrame(loop);
@@ -272,6 +315,8 @@ export default function PosturPage() {
         </div>
       </div>
 
+      <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
+
       {/* Daftar periksa */}
       {reading && (
         <div className="space-y-3">
@@ -356,6 +401,82 @@ export default function PosturPage() {
       </div>
     </div>
   );
+}
+
+// Analisis akhir sesi: yang dilaporin PORSI WAKTU tiap cek bertahan bener,
+// bukan potret sesaat. Postur yang cuma bener pas lagi diperhatiin itu belum
+// jadi kebiasaan.
+function buildPostureAnalysis(t: {
+  frames: number;
+  okByCheck: Record<string, number>;
+  seenByCheck: Record<string, number>;
+  labels: Record<string, string>;
+  fixes: Record<string, string>;
+  scoreSum: number;
+  startedAt: number;
+}): Analysis | null {
+  const seconds = (performance.now() - t.startedAt) / 1000;
+  // sesi kependekan gak layak dinilai
+  if (t.frames < 60 || seconds < 8) return null;
+
+  const rows = Object.keys(t.seenByCheck).map((id) => ({
+    id,
+    label: t.labels[id],
+    fix: t.fixes[id],
+    pct: Math.round(((t.okByCheck[id] ?? 0) / t.seenByCheck[id]) * 100),
+  }));
+  rows.sort((a, b) => a.pct - b.pct);
+
+  const avg = Math.round(t.scoreSum / t.frames);
+  const verdicts = [];
+
+  const worst = rows[0];
+  if (worst && worst.pct < 70) {
+    verdicts.push({
+      icon: "🎯",
+      title: `Paling sering meleset: ${worst.label} (bener cuma ${worst.pct}% waktu)`,
+      detail: worst.fix,
+      tone: (worst.pct < 40 ? "bad" : "warn") as "bad" | "warn",
+    });
+  }
+
+  const stable = rows.filter((r) => r.pct >= 85);
+  if (stable.length) {
+    verdicts.push({
+      icon: "✅",
+      title: `Udah jadi kebiasaan: ${stable.map((r) => r.label).join(", ")}`,
+      detail: "Bagian ini bener tanpa perlu lu pikirin lagi. Jangan diutak-atik.",
+      tone: "good" as const,
+    });
+  }
+
+  const middling = rows.filter((r) => r.pct >= 40 && r.pct < 85);
+  if (middling.length) {
+    verdicts.push({
+      icon: "🔁",
+      title: `Masih goyang: ${middling.map((r) => `${r.label} ${r.pct}%`).join(" · ")}`,
+      detail:
+        "Bener kalau lagi inget, salah lagi begitu fokus pindah ke nada. Ini normal — tandanya belum otomatis, bukan belum ngerti.",
+      tone: "warn" as const,
+    });
+  }
+
+  verdicts.push({
+    icon: "⏱️",
+    title: `${Math.round(seconds)} detik terpantau`,
+    detail:
+      seconds < 30
+        ? "Sesi pendek. Buat gambaran yang jujur, main minimal 30 detik — postur biasanya baru melorot setelah beberapa gesekan."
+        : "Durasinya cukup buat ngeliat mana yang bertahan dan mana yang melorot.",
+    tone: seconds < 30 ? ("warn" as const) : ("good" as const),
+  });
+
+  return {
+    score: avg,
+    headline: "Analisis postur",
+    subline: `Rata-rata ${avg}% cek lolos · ${rows.length} hal terukur · urutan benerin: dari yang persentasenya paling kecil`,
+    verdicts,
+  };
 }
 
 function drawPose(

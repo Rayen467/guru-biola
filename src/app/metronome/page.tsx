@@ -12,6 +12,7 @@ import {
   useMetronome,
   type MetronomeSettings,
 } from "@/lib/metronome";
+import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 
 const BIRAMA = [
   { label: "2/4", beats: 2 },
@@ -39,11 +40,44 @@ export default function MetronomePage() {
     running && settings.rampEvery > 0 ? pos.bpm : settings.bpm;
   const taps = useRef<number[]>([]);
   const [tapInfo, setTapInfo] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  // Rekam jalannya sesi metronom biar pas distop ada laporannya, bukan cuma diam.
+  const runRef = useRef({ startedAt: 0, bars: 0, minBpm: 0, maxBpm: 0, silent: 0 });
 
   useEffect(() => {
     setSettings(loadSettings());
     setReady(true);
   }, []);
+
+  // Kumpulin jalannya sesi: berapa bar, tempo terendah/tertinggi, berapa bar hening.
+  useEffect(() => {
+    if (!running || pos.at === 0) return;
+    const r = runRef.current;
+    if (r.startedAt === 0) {
+      r.startedAt = performance.now();
+      r.minBpm = pos.bpm;
+      r.maxBpm = pos.bpm;
+    }
+    r.bars = pos.bar + 1;
+    r.minBpm = Math.min(r.minBpm, pos.bpm);
+    r.maxBpm = Math.max(r.maxBpm, pos.bpm);
+    if (pos.silent && pos.beat === 0) r.silent++;
+  }, [pos, running]);
+
+  // Begitu distop, langsung keluar laporannya.
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      setAnalysis(null);
+      return;
+    }
+    if (wasRunning.current) {
+      wasRunning.current = false;
+      setAnalysis(buildMetronomeAnalysis(runRef.current, settings));
+      runRef.current = { startedAt: 0, bars: 0, minBpm: 0, maxBpm: 0, silent: 0 };
+    }
+  }, [running, settings]);
 
   useEffect(() => {
     if (ready) saveSettings(settings);
@@ -211,6 +245,8 @@ export default function MetronomePage() {
         {tapInfo && <div className="mt-2 text-xs text-muted">{tapInfo}</div>}
       </div>
 
+      <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
+
       {/* Pengaturan dasar */}
       <div className="space-y-4 rounded-xl border border-border-soft bg-surface p-5">
         <Row label="Birama">
@@ -355,6 +391,89 @@ export default function MetronomePage() {
       </div>
     </div>
   );
+}
+
+// Metronom gak dengerin lu — jadi yang dilaporin apa yang MEMANG bisa
+// diketahui: berapa lama, berapa bar, tempo bergerak ke mana, dan latihan
+// mana yang dipakai. Jangan ngarang penilaian permainan dari alat yang budeg.
+function buildMetronomeAnalysis(
+  r: { startedAt: number; bars: number; minBpm: number; maxBpm: number; silent: number },
+  s: MetronomeSettings
+): Analysis | null {
+  if (r.startedAt === 0 || r.bars < 2) return null;
+  const seconds = (performance.now() - r.startedAt) / 1000;
+  const beats = r.bars * s.beatsPerBar;
+  const verdicts = [];
+
+  verdicts.push({
+    icon: "⏱️",
+    title: `${Math.round(seconds)} detik · ${r.bars} bar · ${beats} ketukan`,
+    detail:
+      seconds < 60
+        ? "Sesi pendek. Latihan bareng metronom baru kerasa efeknya setelah beberapa menit — badan butuh waktu buat nyetel."
+        : "Durasi segini udah cukup buat ngebentuk rasa tempo.",
+    tone: (seconds < 60 ? "warn" : "good") as "warn" | "good",
+  });
+
+  if (r.maxBpm > r.minBpm) {
+    verdicts.push({
+      icon: "📈",
+      title: `Tempo naik ${r.minBpm} → ${r.maxBpm} BPM`,
+      detail:
+        r.maxBpm - r.minBpm > 30
+          ? "Lompatannya lumayan jauh. Kalau di tempo atas mulai meleset, turunin lagi 10 BPM — latihan salah berulang itu ngapalin yang salah."
+          : "Kenaikan bertahap kayak gini yang bener: pelan dulu, naik dikit-dikit.",
+      tone: "good" as const,
+    });
+  } else {
+    verdicts.push({
+      icon: "🎚️",
+      title: `Tempo tetap ${r.minBpm || s.bpm} BPM`,
+      detail:
+        "Kalau di tempo ini udah kerasa gampang, nyalain 'tempo naik otomatis' — biar naiknya terukur, bukan asal geser.",
+      tone: "good" as const,
+    });
+  }
+
+  if (r.silent > 0) {
+    verdicts.push({
+      icon: "🤫",
+      title: `${r.silent} bar hening dilewati`,
+      detail:
+        "Bagus — bar hening itu latihan paling jujur buat tempo internal. Kalau pas klik balik lu masih pas, rasa tempo lu udah kebentuk.",
+      tone: "good" as const,
+    });
+  } else {
+    verdicts.push({
+      icon: "💡",
+      title: "Belum coba bar hening",
+      detail:
+        "Nyalain 'bar hening tiap 4 bar'. Metronom bakal diam sebentar — di situ ketahuan lu ngikutin klik atau udah punya tempo sendiri.",
+      tone: "warn" as const,
+    });
+  }
+
+  verdicts.push({
+    icon: "🎻",
+    title: "Lanjutannya",
+    detail:
+      "Metronom cuma ngasih ketukan — dia gak tahu gesekan lu tepat apa nggak. Buat itu, pakai menu Ritme: di sana mic ngukur lu meleset berapa milidetik dari tiap ketukan.",
+    tone: "good" as const,
+  });
+
+  // Skornya dari kelengkapan latihan, bukan dari permainan (metronom gak dengerin)
+  let score = 40;
+  if (seconds >= 60) score += 20;
+  if (seconds >= 180) score += 10;
+  if (r.maxBpm > r.minBpm) score += 15;
+  if (r.silent > 0) score += 15;
+
+  return {
+    score: Math.min(100, score),
+    headline: "Ringkasan sesi metronom",
+    subline: `${r.bars} bar di birama ${s.beatsPerBar}/4 · skor ini menilai POLA latihannya, bukan permainan lu`,
+    verdicts,
+  };
 }
 
 function Row({
