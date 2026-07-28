@@ -9,6 +9,10 @@ export interface Progress {
   songs: Record<string, { best: number; plays: number }>; // best = akurasi %
   // Ritme: bestAvgMs = rata-rata meleset terkecil yang pernah dicapai (makin kecil makin bagus)
   rhythm: { rounds: number; bestAvgMs: number | null; lastAvgMs: number | null };
+  // Catatan per NADA. Ini yang bikin app bisa bilang "C#5 lu selalu
+  // kerendahan" — bukan cuma "intonasi lu 72%". Kunci = nomor MIDI.
+  // centsSum dipakai buat rata-rata arah meleset (+ ketinggian, − kerendahan).
+  noteStats: Record<string, { attempts: number; hits: number; centsSum: number }>;
   practiceSeconds: Record<string, number>; // key: "YYYY-MM-DD" (tanggal lokal)
   lastActive: string | null;
 }
@@ -24,6 +28,7 @@ function emptyProgress(): Progress {
     intonation: { attempts: 0, hits: 0 },
     songs: {},
     rhythm: { rounds: 0, bestAvgMs: null, lastAvgMs: null },
+    noteStats: {},
     practiceSeconds: {},
     lastActive: null,
   };
@@ -139,6 +144,44 @@ export function practiceSeries(
     });
   }
   return out;
+}
+
+// Catat satu percobaan nada. `cents` cuma diisi kalau nadanya kena — arah
+// meleset pas gagal gak bisa dipercaya (bisa jadi salah senar).
+export function logNoteAttempt(midi: number, hit: boolean, cents?: number) {
+  updateProgress((p) => {
+    const key = String(midi);
+    const rec = p.noteStats[key] ?? { attempts: 0, hits: 0, centsSum: 0 };
+    rec.attempts += 1;
+    if (hit) {
+      rec.hits += 1;
+      if (typeof cents === "number") rec.centsSum += cents;
+    }
+    p.noteStats[key] = rec;
+  });
+}
+
+export interface NoteProblem {
+  midi: number;
+  attempts: number;
+  hits: number;
+  rate: number; // 0..1 tingkat kena
+  bias: number; // rata-rata cent pas kena: + ketinggian, − kerendahan
+}
+
+// Nada yang paling sering bikin susah. Yang dipakai TINGKAT KENA, bukan
+// jumlah gagal — nada yang jarang dilatih jangan kelihatan seolah aman.
+export function problemNotes(p: Progress, min = 4): NoteProblem[] {
+  return Object.entries(p.noteStats ?? {})
+    .map(([midi, r]) => ({
+      midi: Number(midi),
+      attempts: r.attempts,
+      hits: r.hits,
+      rate: r.attempts > 0 ? r.hits / r.attempts : 0,
+      bias: r.hits > 0 ? Math.round(r.centsSum / r.hits) : 0,
+    }))
+    .filter((n) => n.attempts >= min)
+    .sort((a, b) => a.rate - b.rate);
 }
 
 // --- Cadangan / pindah perangkat ---

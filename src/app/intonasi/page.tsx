@@ -12,7 +12,13 @@ import {
   useA4,
 } from "@/lib/notes";
 import { playTone } from "@/lib/tone";
-import { updateProgress } from "@/lib/progress";
+import {
+  loadProgress,
+  logNoteAttempt,
+  problemNotes,
+  updateProgress,
+  type NoteProblem,
+} from "@/lib/progress";
 import { fingerHint } from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
@@ -130,6 +136,10 @@ export default function IntonasiPage() {
   } = usePitch({ sensitivity });
   const drone = useDrone();
   const a4 = useA4();
+
+  useEffect(() => {
+    setProblems(problemNotes(loadProgress()));
+  }, []);
   const { report, clear } = useSessionEval({
     active,
     freq,
@@ -139,6 +149,9 @@ export default function IntonasiPage() {
   });
   const [setIdx, setSetIdx] = useState(0);
   const [noteIdx, setNoteIdx] = useState(0);
+  // Set dadakan berisi nada-nada yang paling sering meleset.
+  const [customSet, setCustomSet] = useState<PracticeSet | null>(null);
+  const [problems, setProblems] = useState<NoteProblem[]>([]);
   const [hits, setHits] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [flash, setFlash] = useState<"hit" | null>(null);
@@ -148,7 +161,7 @@ export default function IntonasiPage() {
   const hist = useRef<number[]>([]);
   const lastValidAt = useRef(0);
 
-  const set = SETS[setIdx];
+  const set = customSet ?? SETS[setIdx];
   const targetMidi = set.midis[noteIdx];
   const targetFreq = midiToFreq(targetMidi);
   const isOpenString = OPEN_STRING_MIDIS.includes(targetMidi);
@@ -213,6 +226,10 @@ export default function IntonasiPage() {
           p.intonation.hits += 1;
           p.intonation.attempts += 1;
         });
+        // Simpan per nada + arah melesetnya, biar app tahu nada mana yang
+        // jadi langganan masalah — bukan cuma persentase gabungan.
+        logNoteAttempt(targetMidi, true, cents ?? 0);
+        setProblems(problemNotes(loadProgress()));
         setNoteIdx((i) => (i + 1) % set.midis.length);
       }
     } else {
@@ -226,6 +243,10 @@ export default function IntonasiPage() {
     updateProgress((p) => {
       p.intonation.attempts += 1;
     });
+    // Dilewati = gagal buat nada itu. Arah melesetnya gak dicatat: pas gagal,
+    // yang kebaca bisa aja senar lain, jadi angkanya gak bisa dipercaya.
+    logNoteAttempt(targetMidi, false);
+    setProblems(problemNotes(loadProgress()));
     holdStart.current = null;
     setHoldPct(0);
     setNoteIdx((i) => (i + 1) % set.midis.length);
@@ -241,18 +262,85 @@ export default function IntonasiPage() {
         </p>
       </header>
 
+      {/* Nada bermasalah — dikumpulin dari latihan lu sendiri, bukan tebakan.
+          Ini yang bikin latihan besok beda dari latihan hari ini. */}
+      {problems.length > 0 && problems[0].rate < 0.85 && (
+        <div className="animate-fade-up rounded-xl border border-accent/40 bg-accent/10 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-accent-strong">
+              🎯 Nada yang paling sering meleset
+            </h2>
+            <button
+              onClick={() => {
+                const weak = problems.filter((n) => n.rate < 0.85).slice(0, 5);
+                if (weak.length === 0) return;
+                setCustomSet({
+                  id: "problem",
+                  label: "Nada bermasalah lu",
+                  hint: "Diambil dari catatan latihan lu sendiri",
+                  midis: weak.map((n) => n.midi).sort((a, b) => a - b),
+                  tonic: weak[0].midi,
+                });
+                setNoteIdx(0);
+                holdStart.current = null;
+                setHoldPct(0);
+              }}
+              className="press rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-strong"
+            >
+              Latih nada ini aja →
+            </button>
+          </div>
+          <ul className="mt-2 space-y-1">
+            {problems.slice(0, 4).map((n) => (
+              <li
+                key={n.midi}
+                className="flex items-center gap-3 rounded-lg bg-surface-2 p-2 text-xs"
+              >
+                <span className="w-12 font-bold text-foreground">
+                  {midiToName(n.midi)}
+                </span>
+                <span className="flex-1 text-muted">
+                  kena {Math.round(n.rate * 100)}% dari {n.attempts} percobaan
+                  {n.hits >= 3 && Math.abs(n.bias) > 6 && (
+                    <>
+                      {" · "}
+                      {n.bias > 0
+                        ? "cenderung KETINGGIAN — geser jari mundur"
+                        : "cenderung KERENDAHAN — geser jari maju"}
+                    </>
+                  )}
+                </span>
+                <span className="font-mono text-muted">{fingerHint(n.midi)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
+        {customSet && (
+          <button
+            onClick={() => {
+              setCustomSet(null);
+              setNoteIdx(0);
+            }}
+            className="press rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-background"
+          >
+            🎯 {customSet.label} · klik buat keluar
+          </button>
+        )}
         {SETS.map((s, i) => (
           <button
             key={s.id}
             onClick={() => {
+              setCustomSet(null);
               setSetIdx(i);
               setNoteIdx(0);
               holdStart.current = null;
               setHoldPct(0);
             }}
-            className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-              i === setIdx
+            className={`press rounded-full px-3 py-1.5 text-xs ${
+              i === setIdx && !customSet
                 ? "bg-accent font-semibold text-background"
                 : "bg-surface-2 text-muted hover:text-foreground"
             }`}
