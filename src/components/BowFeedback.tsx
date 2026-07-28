@@ -16,6 +16,7 @@ export default function BowFeedback({
   noisy = false,
   calibrating = false,
   noiseFloorDb = -100,
+  reason,
 }: {
   active: boolean;
   freq: number | null;
@@ -24,6 +25,8 @@ export default function BowFeedback({
   noisy?: boolean;
   calibrating?: boolean;
   noiseFloorDb?: number;
+  // alasan penolakan dari detektor — bikin pesannya lebih tepat sasaran
+  reason?: string;
 }) {
   if (!active) return null;
 
@@ -51,9 +54,11 @@ export default function BowFeedback({
     emoji = "🔊";
     title = "Ada suara, TAPI bukan nada biola";
     tip =
-      noiseFloorDb > LOUD_ROOM_DB
-        ? "Ruangannya berisik (kipas/AC/TV/orang ngomong). Matiin sumber suaranya, atau deketin mic ke biola — nada cuma dibaca kalau jelas lebih keras dari suara latar."
-        : "Yang masuk mic bukan nada bertahan. Gesek satu senar panjang dan stabil, jangan ketok-ketok atau ngomong.";
+      reason === "timbre"
+        ? "Yang kedengeran itu suara orang / TV / speaker — bentuk harmoniknya beda dari dawai, jadi sengaja diabaikan. Aman, tinggal gesek biolanya."
+        : noiseFloorDb > LOUD_ROOM_DB
+          ? "Ruangannya berisik (kipas/AC/TV/orang ngomong). Matiin sumber suaranya, atau deketin mic ke biola — nada cuma dibaca kalau jelas lebih keras dari suara latar."
+          : "Yang masuk mic bukan nada bertahan. Gesek satu senar panjang dan stabil, jangan ketok-ketok atau ngomong.";
     tone = "warn";
   } else if (volumeDb < SILENT_DB) {
     emoji = "🔇";

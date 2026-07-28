@@ -33,6 +33,7 @@ export default function RekamPage() {
     noisy,
     calibrating,
     noiseFloorDb,
+    reason,
     active,
     error,
     start,
@@ -207,6 +208,7 @@ export default function RekamPage() {
               noisy={noisy}
               calibrating={calibrating}
               noiseFloorDb={noiseFloorDb}
+              reason={reason}
             />
           </div>
         )}

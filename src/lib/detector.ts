@@ -32,21 +32,37 @@ export interface Detection {
   clarity: number; // periodisitas dari pitchy
   flatness: number; // 0..1 — makin kecil makin "bernada"
   harmonic: number; // 0..1 — porsi energi yang duduk di deret harmonik
+  // 0..1 — porsi energi harmonik yang duduk di partial 1-2. Dawai digesek
+  // dominan di partial bawah; vokal manusia ditarik formant ke partial 3-6.
+  timbre: number;
+  harmonicCount: number; // berapa partial yang beneran nongol di atas lantai spektrum
   level: number; // RMS
   noiseFloor: number; // RMS suara latar
   calibrating: boolean;
   // Alasan ditolak — dipakai halaman diagnosa /mic biar user tahu kenapa
-  reason: "ok" | "calibrating" | "quiet" | "noise" | "inharmonic" | "unstable" | "range";
+  reason:
+    | "ok"
+    | "calibrating"
+    | "quiet"
+    | "noise"
+    | "inharmonic"
+    | "timbre"
+    | "unstable"
+    | "range";
 }
 
-const FREQ_MIN = 180; // Hz — sedikit di bawah G3 (196 Hz)
+const FREQ_MIN = 188; // Hz — mepet di bawah G3 (196 Hz), di atas wilayah suara pria
 const FREQ_MAX = 3200; // Hz — di atas jangkauan wajar biola
 const BAND_LO = 150; // Hz — batas bawah analisis spektrum
 const BAND_HI = 5000; // Hz
 const ABS_FLOOR = 0.0025; // RMS minimum absolut
 const CALIBRATE_MS = 700;
-const STABLE_CENTS = 70; // toleransi goyang nada — vibrato lebar masih lolos
+const STABLE_CENTS = 55; // toleransi goyang nada — vibrato lebar (±50) masih lolos
 const HISTORY_MS = 1200;
+// Sekali nada beneran ke-lock, ambangnya dilonggarin sebentar. Tanpa ini,
+// gesekan yang sesaat kotor bikin jarum kedip-kedip padahal nadanya masih jalan.
+const LOCK_HOLD_MS = 350;
+const LOCK_RELAX = 0.82;
 
 // Ambang yang ikut sensitivitas.
 function thresholds(sensitivity: number) {
@@ -57,12 +73,19 @@ function thresholds(sensitivity: number) {
     // lama bikin patokan latarnya naik sendiri sampai nadanya ikut ke-gate.
     // Penolakan noise diurus uji spektrum yang gak peduli keras-pelan.
     gate: ABS_FLOOR * (2 - s * 1.4), // 2x → 0.6x dari ambang absolut
-    clarity: 0.94 - s * 0.09, // 0.94 → 0.85
+    clarity: 0.95 - s * 0.09, // 0.95 → 0.86
     // Flatness dipakai sebagai saringan KASAR aja. Di ruangan ber-AC, noise
     // lebar bikin flatness naik walau nada biolanya jelas — yang menentukan
     // tetap skor harmonik.
-    flatnessMax: 0.42 + s * 0.18, // 0.42 → 0.60
-    harmonicMin: 0.4 - s * 0.15, // 0.40 → 0.25
+    flatnessMax: 0.40 + s * 0.18, // 0.40 → 0.58
+    harmonicMin: 0.45 - s * 0.18, // 0.45 → 0.27
+    // Deret harmonik harus BENERAN kelihatan, bukan cuma satu puncak. Kipas
+    // bernada dan siulan cuma punya 1-2 partial; dawai punya banyak.
+    minHarmonics: s < 0.35 ? 4 : 3,
+    // Penjaga anti-suara-orang: vokal manusia ditarik formant, jadi partial
+    // yang paling kuat sering partial ke-3 sampai ke-6. Dawai digesek hampir
+    // selalu paling kuat di partial 1 atau 2.
+    timbreMin: 0.34 - s * 0.14, // 0.34 → 0.20
   };
 }
 
@@ -113,13 +136,17 @@ export class ViolinDetector {
   private noiseFloor = ABS_FLOOR;
   private startedAt: number | null = null;
   private history: { t: number; f: number }[] = [];
+  private lockedUntil = 0;
 
   constructor(size: number, options: DetectorOptions) {
     this.sampleRate = options.sampleRate;
     this.opts = {
       sampleRate: options.sampleRate,
       sensitivity: options.sensitivity ?? 0.5,
-      stableMs: options.stableMs ?? 180,
+      // 260 ms: nada yang digesek gampang nyampe segini, tapi musik dari
+      // speaker/TV ganti nada tiap ~200 ms jadi kesaring. Halaman yang butuh
+      // respons cepat (lagu, ritme, baca not) boleh nurunin sendiri.
+      stableMs: options.stableMs ?? 260,
     };
     this.pitchy = PitchDetector.forFloat32Array(size);
     // Bawaan pitchy nolak sinyal di bawah ambang volumenya dan balikin pitch 0.
@@ -182,15 +209,26 @@ export class ViolinDetector {
   // per-bin tapi kebagi ke ribuan bin; kalau dijumlah dalam magnitudo, totalnya
   // ngalahin puncak harmonik dan biola di ruangan ber-AC ikut ketolak. Dalam
   // domain energi, puncak yang tajam tetap menang.
-  private harmonicScore(f0: number): number {
+  private harmonicProfile(f0: number): {
+    score: number;
+    timbre: number;
+    count: number;
+  } {
     const binHz = this.sampleRate / (this.mag.length * 2);
     const lo = Math.max(1, Math.floor(BAND_LO / binHz));
     const hi = Math.min(this.mag.length - 1, Math.ceil(BAND_HI / binHz));
     let total = 0;
     for (let i = lo; i <= hi; i++) total += this.mag[i] * this.mag[i];
-    if (total <= 0) return 0;
+    if (total <= 0) return { score: 0, timbre: 0, count: 0 };
 
-    let harm = 0;
+    // Lantai spektrum = median energi bin. Partial dianggap "nongol" kalau
+    // energinya jauh di atas lantai ini — bukan sekadar ada angkanya.
+    const band: number[] = [];
+    for (let i = lo; i <= hi; i += 3) band.push(this.mag[i] * this.mag[i]);
+    band.sort((a, b) => a - b);
+    const floor = band[Math.floor(band.length / 2)] || 1e-12;
+
+    const partials: number[] = [];
     for (let k = 1; k <= 8; k++) {
       const f = f0 * k;
       if (f > BAND_HI) break;
@@ -203,9 +241,14 @@ export class ViolinDetector {
         const e = this.mag[i] * this.mag[i];
         if (e > peak) peak = e;
       }
-      harm += peak;
+      partials.push(peak);
     }
-    return Math.min(1, harm / total);
+
+    const harm = partials.reduce((a, b) => a + b, 0);
+    const count = partials.filter((p) => p > floor * 12).length;
+    // Porsi energi harmonik yang duduk di dua partial terbawah.
+    const lowShare = harm > 0 ? (partials[0] + (partials[1] ?? 0)) / harm : 0;
+    return { score: Math.min(1, harm / total), timbre: lowShare, count };
   }
 
   // Kestabilan diukur terhadap MEDIAN jendela, bukan bacaan terakhir: vibrato
@@ -246,6 +289,8 @@ export class ViolinDetector {
       clarity: 0,
       flatness: 1,
       harmonic: 0,
+      timbre: 0,
+      harmonicCount: 0,
       level,
       noiseFloor: this.noiseFloor,
       calibrating,
@@ -290,8 +335,12 @@ export class ViolinDetector {
       return { ...base, rawFreq: pitch, clarity, flatness, reason: "noise" };
     }
 
-    const harmonic = this.harmonicScore(pitch);
-    if (harmonic < th.harmonicMin) {
+    const prof = this.harmonicProfile(pitch);
+    const harmonic = prof.score;
+    const locked = now < this.lockedUntil;
+    const relax = locked ? LOCK_RELAX : 1;
+
+    if (harmonic < th.harmonicMin * relax || prof.count < th.minHarmonics) {
       updateFloor(false);
       this.history.length = 0;
       return {
@@ -300,7 +349,27 @@ export class ViolinDetector {
         clarity,
         flatness,
         harmonic,
+        timbre: prof.timbre,
+        harmonicCount: prof.count,
         reason: "inharmonic",
+      };
+    }
+
+    // Uji timbre dawai. Ini yang bunuh suara orang: vokal manusia punya
+    // formant, jadi puncak energinya pindah ke partial atas. Dawai digesek
+    // tetap paling gede di partial 1-2.
+    if (prof.timbre < th.timbreMin * relax) {
+      updateFloor(false);
+      this.history.length = 0;
+      return {
+        ...base,
+        rawFreq: pitch,
+        clarity,
+        flatness,
+        harmonic,
+        timbre: prof.timbre,
+        harmonicCount: prof.count,
+        reason: "timbre",
       };
     }
 
@@ -316,10 +385,14 @@ export class ViolinDetector {
         clarity,
         flatness,
         harmonic,
+        timbre: prof.timbre,
+        harmonicCount: prof.count,
         noiseFloor: this.noiseFloor,
         reason: "unstable",
       };
     }
+
+    this.lockedUntil = now + LOCK_HOLD_MS;
 
     const confidence = Math.min(
       1,
@@ -335,6 +408,8 @@ export class ViolinDetector {
       clarity,
       flatness,
       harmonic,
+      timbre: prof.timbre,
+      harmonicCount: prof.count,
       level,
       noiseFloor: this.noiseFloor,
       calibrating: false,

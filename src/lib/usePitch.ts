@@ -21,6 +21,8 @@ export interface PitchState {
   noiseFloorDb: number;  // level suara latar ruangan, dB
   confidence: number;    // 0..1 — seberapa yakin ini nada biola
   harmonic: number;      // 0..1 — porsi energi di deret harmonik
+  timbre: number;        // 0..1 — porsi energi harmonik di partial 1-2 (ciri dawai)
+  harmonicCount: number; // jumlah partial yang nongol jelas
   flatness: number;      // 0..1 — makin kecil makin "bernada"
   rawFreq: number;       // kandidat mentah sebelum disaring (buat diagnosa)
   reason: Detection["reason"];
@@ -42,6 +44,41 @@ const ONSET_FLOOR = 0.006;
 const ONSET_RATIO = 1.7;
 const ONSET_REFRACTORY_MS = 110;
 
+// Penyebab mic gagal beda-beda dan tindakannya juga beda: ditolak user, diblok
+// karena halaman bukan HTTPS, mic dipegang app lain, atau panel yang nampung
+// halaman ini (preview pane / iframe) yang nolak duluan. Pesan generik bikin
+// orang nyalain-matiin mic sia-sia, jadi dipisah per kasus.
+function micErrorMessage(e: unknown): string {
+  if (!window.isSecureContext) {
+    return "Mic cuma jalan di HTTPS atau localhost. Halaman ini kebuka lewat http:// biasa (mis. alamat IP), jadi browser matiin mic-nya.";
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return "Browser ini gak nyediain akses mic. Pakai Chrome, Edge, atau Firefox versi baru.";
+  }
+  if (!(e instanceof DOMException)) return "Gagal akses mic: " + String(e);
+
+  switch (e.name) {
+    case "NotAllowedError": {
+      // Halaman yang dibuka di dalam panel/iframe bisa ketolak duluan sama
+      // kebijakan induknya — izin browser-nya sendiri gak pernah ditanya.
+      const embedded = window.self !== window.top;
+      return embedded
+        ? "Mic diblokir sama panel yang nampung halaman ini. Buka alamatnya langsung di browser biasa."
+        : "Akses mic ditolak. Klik ikon gembok di address bar → Microphone → Allow, terus muat ulang. Kalau halaman ini lagi dibuka di dalam panel preview, buka aja langsung di browser biasa.";
+    }
+    case "NotFoundError":
+      return "Gak nemu mic. Colok mic-nya, atau aktifin di Setelan Windows → Suara → Input.";
+    case "NotReadableError":
+      return "Mic lagi dipakai app lain (Zoom, OBS, Discord). Tutup dulu app-nya, terus coba lagi.";
+    case "OverconstrainedError":
+      return "Mic-nya gak sanggup ngasih format audio yang diminta. Coba pilih mic lain di setelan browser.";
+    case "AbortError":
+      return "Browser gagal mulai mic. Muat ulang halaman.";
+    default:
+      return "Gagal akses mic (" + e.name + "). Coba muat ulang halaman.";
+  }
+}
+
 const EMPTY: PitchState = {
   freq: null,
   clarity: 0,
@@ -55,6 +92,8 @@ const EMPTY: PitchState = {
   noiseFloorDb: -100,
   confidence: 0,
   harmonic: 0,
+  timbre: 0,
+  harmonicCount: 0,
   flatness: 1,
   rawFreq: 0,
   reason: "quiet",
@@ -118,6 +157,11 @@ export function usePitch(options: PitchOptions = {}) {
     pendingRef.current = true;
     const session = sessionRef.current;
     try {
+      // Di halaman non-HTTPS `navigator.mediaDevices` sendiri gak ada, jadi
+      // tanpa penjaga ini yang muncul TypeError, bukan sebab sebenarnya.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new DOMException("mediaDevices unavailable", "NotSupportedError");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           // Semua pemrosesan browser dimatiin: noise suppression dirancang
@@ -156,7 +200,7 @@ export function usePitch(options: PitchOptions = {}) {
       const detector = new ViolinDetector(FFT_SIZE, {
         sampleRate: ctx.sampleRate,
         sensitivity: optsRef.current.sensitivity ?? 0.5,
-        stableMs: optsRef.current.stableMs ?? 180,
+        stableMs: optsRef.current.stableMs ?? 260,
       });
       const input = new Float32Array(FFT_SIZE);
 
@@ -193,8 +237,13 @@ export function usePitch(options: PitchOptions = {}) {
         const rmsFast = Math.sqrt(fastSq / ONSET_WINDOW);
         const env = envRef.current;
         let onsetAt = 0;
+        // Awal gesekan cuma diakui kalau frame-nya emang lagi bernada dawai
+        // (atau nada baru yang belum sempat mantap). Tanpa syarat ini, klik
+        // metronom dan ketokan meja kehitung sebagai gesekan di /ritme.
+        const violinish = d.freq !== null || d.reason === "unstable";
         if (
           !d.calibrating &&
+          violinish &&
           rmsFast > Math.max(ONSET_FLOOR, d.noiseFloor * 2) &&
           rmsFast > env * ONSET_RATIO &&
           now - lastOnsetRef.current > ONSET_REFRACTORY_MS
@@ -220,6 +269,7 @@ export function usePitch(options: PitchOptions = {}) {
             d.freq === null &&
             (d.reason === "noise" ||
               d.reason === "inharmonic" ||
+              d.reason === "timbre" ||
               d.reason === "range"),
           calibrating: d.calibrating,
           noiseFloorDb: Math.max(
@@ -228,6 +278,8 @@ export function usePitch(options: PitchOptions = {}) {
           ),
           confidence: d.confidence,
           harmonic: d.harmonic,
+          timbre: d.timbre,
+          harmonicCount: d.harmonicCount,
           flatness: d.flatness,
           rawFreq: d.rawFreq,
           reason: d.reason,
@@ -238,13 +290,7 @@ export function usePitch(options: PitchOptions = {}) {
       return true;
     } catch (e) {
       if (session === sessionRef.current) {
-        setState({
-          ...EMPTY,
-          error:
-            e instanceof DOMException && e.name === "NotAllowedError"
-              ? "Akses mic ditolak. Izinkan mic di browser dulu."
-              : "Gagal akses mic: " + String(e),
-        });
+        setState({ ...EMPTY, error: micErrorMessage(e) });
       }
       return false;
     } finally {

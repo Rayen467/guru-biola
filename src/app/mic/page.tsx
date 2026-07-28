@@ -29,7 +29,7 @@ const REASON: Record<string, { label: string; fix: string }> = {
   },
   range: {
     label: "📏 Di luar jangkauan biola",
-    fix: "Nada yang kebaca di bawah 180 Hz atau di atas 3200 Hz — di luar wilayah biola. Biasanya ini suara ngomong, dengung listrik, atau ketokan.",
+    fix: "Nada yang kebaca di bawah 188 Hz (di bawah senar G) atau di atas 3200 Hz. Biasanya ini suara ngomong, dengung listrik, atau ketokan.",
   },
   noise: {
     label: "🌫️ Spektrumnya rata (noise)",
@@ -39,9 +39,13 @@ const REASON: Record<string, { label: string; fix: string }> = {
     label: "🥁 Gak punya deret harmonik",
     fix: "Ada suara bernada tapi bukan dawai digesek (ketokan, klik, benturan). Dawai punya deret f0, 2f0, 3f0 — ini nggak.",
   },
+  timbre: {
+    label: "🗣️ Bernada, tapi bukan dawai",
+    fix: "Harmoniknya ada, tapi tenaga terbesarnya di partial atas — ciri suara orang, TV, atau speaker. Dawai digesek selalu paling kuat di partial 1-2. Ini yang bikin suara ngomong gak lagi kebaca sebagai nada.",
+  },
   unstable: {
     label: "🌊 Nadanya belum stabil",
-    fix: "Nada baru mulai atau goyang terus. Tahan gesekan lebih lama — nada harus bertahan ~0,2 detik di frekuensi yang sama.",
+    fix: "Nada baru mulai atau goyang terus. Tahan gesekan lebih lama — nada harus bertahan ~0,26 detik di frekuensi yang sama. Musik dari speaker biasanya mentok di sini karena nadanya ganti terus.",
   },
 };
 
@@ -52,6 +56,8 @@ export default function MicPage() {
     rawFreq,
     clarity,
     harmonic,
+    timbre,
+    harmonicCount,
     flatness,
     confidence,
     volumeDb,
@@ -171,6 +177,24 @@ export default function MicPage() {
           display={harmonic.toFixed(2)}
           hint="Porsi energi yang duduk di f0, 2f0, 3f0… Ciri khas dawai. Ketokan dan noise nilainya kecil."
           bad={harmonic < 0.3}
+        />
+        <Meter
+          label="Timbre dawai (partial 1-2)"
+          value={timbre}
+          min={0}
+          max={1}
+          display={timbre.toFixed(2)}
+          hint="Porsi tenaga harmonik di dua partial terbawah. Dawai tinggi (≥0,3); suara orang rendah karena formant narik tenaga ke partial atas."
+          bad={timbre < 0.25}
+        />
+        <Meter
+          label="Jumlah partial kebaca"
+          value={harmonicCount}
+          min={0}
+          max={8}
+          display={String(harmonicCount)}
+          hint="Berapa deret harmonik yang nongol jelas. Dawai biasanya ≥4; kipas bernada dan siulan cuma 1-2."
+          bad={harmonicCount < 3}
         />
         <Meter
           label="Kerataan spektrum"

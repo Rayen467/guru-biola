@@ -122,6 +122,7 @@ export default function IntonasiPage() {
     noisy,
     calibrating,
     noiseFloorDb,
+    reason,
     start,
     stop,
   } = usePitch({ sensitivity });
@@ -434,6 +435,7 @@ export default function IntonasiPage() {
             noisy={noisy}
             calibrating={calibrating}
             noiseFloorDb={noiseFloorDb}
+            reason={reason}
           />
         </div>
 

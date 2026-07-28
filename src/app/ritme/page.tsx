@@ -50,6 +50,7 @@ export default function RitmePage() {
     noisy,
     calibrating,
     noiseFloorDb,
+    reason,
     start,
     stop,
   } = usePitch({ sensitivity });
@@ -333,6 +334,7 @@ export default function RitmePage() {
             noisy={noisy}
             calibrating={calibrating}
             noiseFloorDb={noiseFloorDb}
+            reason={reason}
           />
         </div>
 

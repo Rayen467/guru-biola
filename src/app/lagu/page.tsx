@@ -29,6 +29,7 @@ export default function LaguPage() {
     noisy,
     calibrating,
     noiseFloorDb,
+    reason,
     start,
     stop,
   } = usePitch({ sensitivity });
@@ -351,6 +352,7 @@ export default function LaguPage() {
                   noisy={noisy}
                   calibrating={calibrating}
                   noiseFloorDb={noiseFloorDb}
+                  reason={reason}
                 />
               </div>
 

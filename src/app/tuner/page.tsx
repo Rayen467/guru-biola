@@ -46,6 +46,7 @@ export default function TunerPage() {
     noisy,
     calibrating,
     noiseFloorDb,
+    reason,
     start,
     stop,
   } = usePitch({ sensitivity });
@@ -256,6 +257,7 @@ export default function TunerPage() {
             noisy={noisy}
             calibrating={calibrating}
             noiseFloorDb={noiseFloorDb}
+            reason={reason}
           />
         </div>
 

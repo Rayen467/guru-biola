@@ -115,6 +115,65 @@ function musicFromSpeaker(amp = 0.1) {
   return out;
 }
 
+// Vokal manusia ditahan ("aaa…", ketawa, orang nyanyi pelan di ruangan).
+// INI kasus yang bikin tuner budeg di dunia nyata: harmonik, jernih, dan
+// stabil — beda dari ngomong biasa yang f0-nya meluncur terus. Pembedanya
+// cuma satu: formant. Energi puncaknya ketarik ke partial 3-6, bukan 1-2.
+function voiceVowel(f0 = 210, amp = 0.14, formants = [700, 1220, 2600]) {
+  const g = rnd(31);
+  const out = new Float32Array(N);
+  const partials = [];
+  for (let k = 1; k <= 12; k++) {
+    const f = f0 * k;
+    // amplop formant: puncak lebar di tiap formant, plus lereng turun -6 dB/okt
+    let a = 0.08;
+    for (const F of formants) {
+      a += 1 / (1 + Math.pow((f - F) / 110, 2));
+    }
+    partials.push((a * 1) / Math.sqrt(k));
+  }
+  let phase = 0;
+  for (let i = 0; i < N; i++) {
+    const t = i / SR;
+    // sedikit goyang, seperti suara ditahan beneran
+    const f = f0 * (1 + 0.006 * Math.sin(2 * Math.PI * 4.5 * t));
+    phase += (2 * Math.PI * f) / SR;
+    let v = 0;
+    for (let k = 0; k < partials.length; k++) {
+      if (f * (k + 1) > SR / 2) break;
+      v += partials[k] * Math.sin(phase * (k + 1));
+    }
+    out[i] = amp * v * 0.12 + 0.004 * g();
+  }
+  return out;
+}
+
+// Kipas laptop / dengung trafo yang BERNADA: satu-dua partial doang + desis.
+function tonalFan(f0 = 240, amp = 0.09) {
+  const g = rnd(37);
+  const out = new Float32Array(N);
+  let phase = 0;
+  for (let i = 0; i < N; i++) {
+    phase += (2 * Math.PI * f0) / SR;
+    out[i] =
+      amp * (Math.sin(phase) + 0.3 * Math.sin(phase * 2) + 0.55 * g());
+  }
+  return out;
+}
+
+// Ketikan keyboard / benda ditaruh di meja.
+function typing(amp = 0.3) {
+  const g = rnd(41);
+  const out = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const t = i / SR;
+    const phase = (t * 7) % 1;
+    const env = phase < 0.012 ? Math.exp(-phase * 320) : 0;
+    out[i] = amp * env * g() * 2;
+  }
+  return out;
+}
+
 function mix(...sigs) {
   const out = new Float32Array(N);
   for (const s of sigs) for (let i = 0; i < N; i++) out[i] += s[i];
@@ -201,6 +260,18 @@ results.push(
   })
 );
 results.push(run("Musik dari speaker HP", musicFromSpeaker(0.12), { expect: "reject" }));
+results.push(run("Vokal ditahan (aaa…)", voiceVowel(210, 0.14), { expect: "reject" }));
+results.push(run("Vokal rendah ditahan", voiceVowel(196, 0.16), { expect: "reject" }));
+results.push(run("Nyanyi pelan + noise", mix(voiceVowel(330, 0.1), whiteNoise(0.01)), { expect: "reject" }));
+results.push(run("Kipas laptop bernada", tonalFan(240, 0.1), { expect: "reject" }));
+results.push(run("Ketikan keyboard", typing(0.3), { expect: "reject" }));
+results.push(run("Ruangan berisik campur", mix(fanHum(0.05), speech(0.08), typing(0.15)), { expect: "reject" }));
+// Batas jujur alat ini: nada dawai yang ditahan LAMA dari speaker (mis. video
+// pelajaran biola) memang gak bisa dibedain dari biola beneran — fisikanya
+// sama. Yang ketolak itu musik biasa yang gantian nada tiap ketuk.
+results.push(
+  run("Musik speaker, nada cepat", musicFromSpeaker(0.12), { expect: "reject" })
+);
 
 // Ujung-ujung slider sensitivitas juga harus waras.
 for (const s of [0, 1]) {
