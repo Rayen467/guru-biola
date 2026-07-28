@@ -51,15 +51,19 @@ export default function BowFeedback({
     tip = null;
     tone = "good";
   } else if (noisy) {
-    emoji = "🔊";
-    title = "Ada suara, TAPI bukan nada biola";
+    // Suara ruangan sering gak bisa diatur — AC kantor, TV tetangga, orang
+    // ngobrol. Jadi ini dilaporkan sebagai "udah dibuang", bukan sebagai
+    // masalah yang harus user benerin. Nada biola tetap dicari lewat sisir
+    // harmonik walau ruangannya rame.
+    emoji = "🛡️";
+    title = "Suara lain diabaikan — tinggal gesek";
     tip =
       reason === "timbre"
-        ? "Yang kedengeran itu suara orang / TV / speaker — bentuk harmoniknya beda dari dawai, jadi sengaja diabaikan. Aman, tinggal gesek biolanya."
+        ? "Yang barusan kedengeran itu suara orang / TV / speaker. Bentuk harmoniknya beda dari dawai, jadi gak dianggap nada."
         : noiseFloorDb > LOUD_ROOM_DB
-          ? "Ruangannya berisik (kipas/AC/TV/orang ngomong). Matiin sumber suaranya, atau deketin mic ke biola — nada cuma dibaca kalau jelas lebih keras dari suara latar."
-          : "Yang masuk mic bukan nada bertahan. Gesek satu senar panjang dan stabil, jangan ketok-ketok atau ngomong.";
-    tone = "warn";
+          ? "Ruangannya emang rame, tapi gak apa-apa — yang dicari cuma deret harmonik biola. Kalau nada lu susah kebaca juga, deketin mic ke biola."
+          : "Belum ada nada bertahan. Gesek satu senar panjang dan stabil.";
+    tone = "muted";
   } else if (volumeDb < SILENT_DB) {
     emoji = "🔇";
     title = "Senyap — gak ada suara masuk";

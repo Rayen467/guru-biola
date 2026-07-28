@@ -389,6 +389,30 @@ results.push(
   })
 );
 results.push(run("AC kenceng doang", fanHum(0.12), { expect: "reject" }));
+
+// Ruangan yang GAK BISA diatur: AC tetangga, TV nyala, orang ngobrol. Biola
+// harus tetap ketemu di tengah semua itu — ini yang dikerjain sisir harmonik.
+results.push(
+  run("Biola + AC keras", mix(violin(440, 0.16), fanHum(0.07)), { expect: "detect", f0: 440 })
+);
+results.push(
+  run("Biola + orang ngobrol keras", mix(violin(587.33, 0.16), speech(0.12)), {
+    expect: "detect",
+    f0: 587.33,
+  })
+);
+results.push(
+  run("Biola + TV + kipas", mix(violin(440, 0.16), musicFromSpeaker(0.06), fanHum(0.05)), {
+    expect: "detect",
+    f0: 440,
+  })
+);
+results.push(
+  run("Mic laptop + ruangan rame", mix(violinWeakFundamental(293.66, 0.16), fanHum(0.05), speech(0.07)), {
+    expect: "detect",
+    f0: 293.66,
+  })
+);
 results.push(
   run("Ruangan berisik, orang ngomong nyusul", afterCalibration(fanHum(0.05), voiceVowel(240, 0.16)), {
     expect: "reject",

@@ -96,6 +96,9 @@ function thresholds(sensitivity: number) {
     // Puncak partial biola jarang lebih tinggi dari partial ke-4; vokal
     // rendah sering puncaknya di partial 5-8 karena formant pertama.
     maxPeakPartial: s < 0.5 ? 4 : 5,
+    // Seberapa besar porsi energi pita yang harus duduk di satu sisir harmonik
+    // sebelum kandidat dari sisir dipercaya. Noise lebar gak pernah setinggi ini.
+    combMin: 0.3 - s * 0.12, // 0.30 → 0.18
   };
 }
 
@@ -240,6 +243,91 @@ export class ViolinDetector {
       this.noiseSpec[i] += (this.mag[i] - this.noiseSpec[i]) * rate;
     }
     this.noiseSpecReady = true;
+  }
+
+  // Pencari nada lewat SISIR HARMONIK.
+  //
+  // Ini yang bikin biola tetap ketemu di ruangan berisik. Algoritma pitch biasa
+  // (MPM/autokorelasi) kerja di gelombang waktu: begitu noise lebar numpuk,
+  // bentuk gelombangnya rusak dan nilai kejernihannya anjlok — padahal
+  // harmoniknya masih kelihatan jelas di spektrum. Di sini dibalik: buat tiap
+  // calon f0, jumlahin energi yang duduk di f0, 2f0, 3f0… Noise nyebar rata
+  // jadi gak numpuk di satu sisir; dawai numpuk banyak.
+  //
+  // Frekuensinya diambil dari partial yang paling kuat lalu DIBAGI nomornya —
+  // resolusi jadi berkali lipat lebih halus daripada baca bin fundamental
+  // (yang cuma ~12 Hz di 4096 sampel; kekasaran segitu = 47 cent di A4, gak
+  // kepake buat tuner).
+  private combSearch(hintHz = 0): { f0: number; strength: number } {
+    const binHz = this.sampleRate / (this.mag.length * 2);
+    const lo = Math.max(1, Math.floor(BAND_LO / binHz));
+    const hi = Math.min(this.mag.length - 1, Math.ceil(BAND_HI / binHz));
+
+    let total = 0;
+    for (let i = lo; i <= hi; i++) total += this.denoised[i] * this.denoised[i];
+    if (total <= 0) return { f0: 0, strength: 0 };
+
+    const energyAt = (f: number): { e: number; bin: number } => {
+      const center = f / binHz;
+      const from = Math.max(lo, Math.round(center) - 2);
+      const to = Math.min(hi, Math.round(center) + 2);
+      let best = 0;
+      let bestBin = Math.round(center);
+      for (let i = from; i <= to; i++) {
+        const e = this.denoised[i] * this.denoised[i];
+        if (e > best) {
+          best = e;
+          bestBin = i;
+        }
+      }
+      return { e: best, bin: bestBin };
+    };
+
+    // Grid 1/48 oktaf: cukup rapat buat nyari calon, sisanya dipertajam nanti.
+    const STEP = Math.pow(2, 1 / 48);
+    let bestF = 0;
+    let bestScore = 0;
+    for (let f = FREQ_MIN; f <= FREQ_MAX; f *= STEP) {
+      let sum = 0;
+      for (let k = 1; k <= 8; k++) {
+        const fk = f * k;
+        if (fk > BAND_HI) break;
+        // partial tinggi dikasih bobot lebih kecil: yang bawah lebih menentukan
+        sum += energyAt(fk).e / Math.sqrt(k);
+      }
+      // Kesinambungan: nada yang barusan lagi dimainkan dikasih keunggulan
+      // tipis. Di ruangan yang ada orang ngobrol, sisir kadang loncat ke suara
+      // orang sekejap — bobot ini yang bikin lacakannya nempel di biola,
+      // bukan gonta-ganti tiap frame.
+      const bias =
+        hintHz > 0 && Math.abs(1200 * Math.log2(f / hintHz)) < 120 ? 1.2 : 1;
+      const score = sum * bias;
+      if (score > bestScore) {
+        bestScore = score;
+        bestF = f;
+      }
+    }
+    if (bestF === 0) return { f0: 0, strength: 0 };
+
+    // Pertajam: ambil partial terkuat, interpolasi parabola di puncaknya,
+    // lalu bagi nomor partial-nya.
+    let refF = bestF;
+    let refE = 0;
+    for (let k = 1; k <= 8; k++) {
+      const fk = bestF * k;
+      if (fk > BAND_HI) break;
+      const { e, bin } = energyAt(fk);
+      if (e <= refE) continue;
+      const a = this.denoised[bin - 1] ?? 0;
+      const b = this.denoised[bin];
+      const c = this.denoised[bin + 1] ?? 0;
+      const denom = a - 2 * b + c;
+      const shift = denom !== 0 ? (0.5 * (a - c)) / denom : 0;
+      refE = e;
+      refF = ((bin + Math.max(-1, Math.min(1, shift))) * binHz) / k;
+    }
+
+    return { f0: refF, strength: Math.min(1, bestScore / total) };
   }
 
   // Rata-rata geometrik / rata-rata aritmetik. Noise putih ≈ 1, nada murni ≈ 0.
@@ -419,16 +507,52 @@ export class ViolinDetector {
     this.noiseMatch = this.similarityToNoise();
     const flatness = this.flatness();
 
-    if (!(pitch > FREQ_MIN && pitch < FREQ_MAX)) {
+    // Dua pencari nada dipakai bareng:
+    //   - pitchy (MPM) akurat dan murah, tapi ambruk begitu ruangan berisik
+    //   - sisir harmonik tahan noise, karena noise gak numpuk di deret harmonik
+    // Yang dipakai: pitchy kalau gelombangnya masih bersih, kalau nggak baru
+    // sisir harmonik yang ambil alih. Jadi kipas/AC yang gak bisa dimatiin
+    // gak lagi bikin biola ilang dari layar.
+    const pitchyOk =
+      pitch > FREQ_MIN && pitch < FREQ_MAX && clarity >= th.clarity;
+    // Petunjuk: nada yang lagi dilacak beberapa ratus milidetik terakhir.
+    const recent = this.history.slice(-6).map((h) => h.f).sort((a, b) => a - b);
+    const hint = recent.length ? recent[Math.floor(recent.length / 2)] : 0;
+    const comb = this.combSearch(hint);
+    const combOk =
+      comb.f0 >= FREQ_MIN && comb.f0 <= FREQ_MAX && comb.strength >= th.combMin;
+
+    const near = (f: number) =>
+      hint <= 0 || (f > 0 && Math.abs(1200 * Math.log2(f / hint)) < 120);
+
+    // Pitchy dipercaya duluan HANYA kalau jawabannya nyambung sama nada yang
+    // lagi jalan. Pas ada orang ngobrol keras, pitchy kadang lompat ke suara
+    // orang di tengah nada biola yang masih bunyi — kalau langsung dipakai,
+    // nadanya keputus dan dianggap "gak stabil". Sisir harmonik yang nempel di
+    // nada berjalan lebih dipercaya dalam kasus itu.
+    let cand: number;
+    let viaComb: boolean;
+    if (pitchyOk && (near(pitch) || !combOk || !near(comb.f0))) {
+      cand = pitch;
+      viaComb = false;
+    } else if (combOk) {
+      cand = comb.f0;
+      viaComb = true;
+    } else {
+      cand = pitch;
+      viaComb = false;
+    }
+
+    if (!(cand > FREQ_MIN && cand < FREQ_MAX)) {
       updateFloor(false);
       this.history.length = 0;
       return { ...base, rawFreq: pitch, clarity, flatness, reason: "range" };
     }
 
     // Noise/desis: spektrum rata + periodisitas rendah.
-    // Plus: kalau bentuk spektrumnya nyaris sama persis dengan profil ruangan,
-    // ya itu memang ruangannya — sekeras apa pun, bukan biola.
-    if (flatness > th.flatnessMax || clarity < th.clarity) {
+    // Kalau sisir harmoniknya kuat, syarat kejernihan/kerataan diloloskan —
+    // dua ukuran itu emang jelek di ruangan berisik walau nadanya nyata.
+    if (!viaComb && (flatness > th.flatnessMax || clarity < th.clarity)) {
       updateFloor(false);
       this.history.length = 0;
       // Frame ini jelas bukan nada → aman dipakai nyegerin profil ruangan.
@@ -445,7 +569,7 @@ export class ViolinDetector {
       };
     }
 
-    const prof = this.harmonicProfile(pitch);
+    const prof = this.harmonicProfile(cand);
     const harmonic = prof.score;
     const locked = now < this.lockedUntil;
     const relax = locked ? LOCK_RELAX : 1;
@@ -469,7 +593,7 @@ export class ViolinDetector {
     // (f0 di bawah ~330 Hz). Di atas itu praktis gak ada orang yang nahan
     // vokal selama ratusan milidetik, sementara senar A dan E justru banyak
     // main di sana — jadi ngetes di situ cuma bikin biola ketolak.
-    const inVoiceZone = pitch < VOICE_ZONE_HZ;
+    const inVoiceZone = cand < VOICE_ZONE_HZ;
     const irregular = prof.bumps > th.maxBumps || prof.peakPartial > th.maxPeakPartial;
     if (inVoiceZone && irregular && !locked) {
       updateFloor(false);
@@ -488,7 +612,7 @@ export class ViolinDetector {
 
     updateFloor(false);
 
-    const st = this.stable(pitch, now);
+    const st = this.stable(cand, now);
     if (!st.ok) {
       // ini kemungkinan besar nada beneran yang baru mulai, cuma belum cukup
       // lama buat dipastiin — riwayatnya JANGAN dihapus
@@ -507,16 +631,21 @@ export class ViolinDetector {
 
     this.lockedUntil = now + LOCK_HOLD_MS;
 
-    const confidence = Math.min(
-      1,
-      0.4 * Math.min(1, (clarity - 0.8) / 0.2) +
-        0.3 * Math.min(1, harmonic / 0.6) +
-        0.3 * Math.min(1, (0.35 - flatness) / 0.3)
-    );
+    // Kalau nadanya ketemu lewat sisir harmonik, kejernihan gelombang emang
+    // rendah (itu memang kondisinya) — keyakinan dihitung dari kekuatan
+    // harmoniknya saja, jangan dihukum dua kali.
+    const confidence = viaComb
+      ? Math.min(1, 0.55 + 0.45 * Math.min(1, harmonic / 0.6))
+      : Math.min(
+          1,
+          0.4 * Math.min(1, (clarity - 0.8) / 0.2) +
+            0.3 * Math.min(1, harmonic / 0.6) +
+            0.3 * Math.min(1, (0.35 - flatness) / 0.3)
+        );
 
     return {
-      freq: pitch,
-      rawFreq: pitch,
+      freq: cand,
+      rawFreq: pitch || cand,
       confidence: Math.max(0, confidence),
       clarity,
       flatness,

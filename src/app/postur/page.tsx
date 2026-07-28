@@ -1,0 +1,342 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  LM,
+  analyseBow,
+  assess,
+  type Point,
+  type PostureReading,
+} from "@/lib/posture";
+
+// Pelatih postur pakai kamera.
+//
+// Kenapa perlu: nada bisa dinilai komputer lewat mic, tapi postur salah baru
+// kelihatan kalau ada yang ngeliatin dari luar. Postur yang salah bukan soal
+// gaya — kaki rapat bikin badan goyang, bahu naik bikin bunyi tegang dan pegal,
+// scroll turun bikin senar G gak kejangkau, bow nyapu bikin bunyi ngesot.
+//
+// Semua diproses di perangkat sendiri: model pose-nya ikut di-host bareng app,
+// dan gambar kamera GAK PERNAH dikirim ke mana pun.
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const TRACK_MS = 2500; // panjang jejak pergelangan yang dianalisis
+
+const SKELETON: [number, number][] = [
+  [LM.leftShoulder, LM.rightShoulder],
+  [LM.leftShoulder, LM.leftElbow],
+  [LM.leftElbow, LM.leftWrist],
+  [LM.rightShoulder, LM.rightElbow],
+  [LM.rightElbow, LM.rightWrist],
+  [LM.leftShoulder, LM.leftHip],
+  [LM.rightShoulder, LM.rightHip],
+  [LM.leftHip, LM.rightHip],
+  [LM.leftHip, LM.leftKnee],
+  [LM.leftKnee, LM.leftAnkle],
+  [LM.rightHip, LM.rightKnee],
+  [LM.rightKnee, LM.rightAnkle],
+];
+
+export default function PosturPage() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef(0);
+  const landmarkerRef = useRef<unknown>(null);
+  const trackRef = useRef<{ x: number; y: number; t: number }[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const runningRef = useRef(false);
+
+  const [status, setStatus] = useState<"idle" | "loading" | "live" | "error">(
+    "idle"
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState<PostureReading | null>(null);
+  const [leftHanded, setLeftHanded] = useState(false);
+  const [best, setBest] = useState<number | null>(null);
+  const leftHandedRef = useRef(false);
+  leftHandedRef.current = leftHanded;
+
+  const stop = useCallback(() => {
+    runningRef.current = false;
+    cancelAnimationFrame(rafRef.current);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setStatus("idle");
+  }, []);
+
+  const start = useCallback(async () => {
+    setError(null);
+    setStatus("loading");
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Browser ini gak ngasih akses kamera. Pakai Chrome/Edge/Brave versi baru, dan halamannya harus HTTPS."
+        );
+      }
+
+      // Modelnya berat (±16 MB) — dimuat sekali, terus disimpan browser.
+      const vision = await import("@mediapipe/tasks-vision");
+      if (!landmarkerRef.current) {
+        const fileset = await vision.FilesetResolver.forVisionTasks(
+          `${BASE}/pose/wasm`
+        );
+        landmarkerRef.current = await vision.PoseLandmarker.createFromOptions(
+          fileset,
+          {
+            baseOptions: {
+              modelAssetPath: `${BASE}/pose/pose_landmarker_lite.task`,
+            },
+            runningMode: "VIDEO",
+            numPoses: 1,
+          }
+        );
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 960 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      const video = videoRef.current!;
+      video.srcObject = stream;
+      await video.play();
+
+      trackRef.current = [];
+      runningRef.current = true;
+      setStatus("live");
+
+      const loop = () => {
+        if (!runningRef.current) return;
+        const lmk = landmarkerRef.current as {
+          detectForVideo: (
+            v: HTMLVideoElement,
+            t: number
+          ) => { landmarks: Point[][] };
+        };
+        const now = performance.now();
+        const res = lmk.detectForVideo(video, now);
+        const pose = res.landmarks?.[0];
+
+        const canvas = canvasRef.current;
+        if (canvas && video.videoWidth) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d")!;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (pose) {
+            drawPose(ctx, pose, canvas.width, canvas.height);
+
+            // jejak pergelangan tangan bow
+            const bowWrist = leftHandedRef.current
+              ? pose[LM.leftWrist]
+              : pose[LM.rightWrist];
+            if (bowWrist && (bowWrist.visibility ?? 1) > 0.5) {
+              trackRef.current.push({ x: bowWrist.x, y: bowWrist.y, t: now });
+              trackRef.current = trackRef.current.filter(
+                (p) => now - p.t <= TRACK_MS
+              );
+            }
+
+            const bow = analyseBow({ points: trackRef.current });
+            const r = assess(pose, bow, leftHandedRef.current);
+            setReading(r);
+            setBest((b) => (b === null ? r.score : Math.max(b, r.score)));
+          }
+        }
+        rafRef.current = requestAnimationFrame(loop);
+      };
+      loop();
+    } catch (e) {
+      setStatus("error");
+      setError(
+        e instanceof DOMException && e.name === "NotAllowedError"
+          ? "Akses kamera ditolak. Klik ikon gembok di address bar → Camera → Allow, terus muat ulang."
+          : "Gagal mulai kamera: " + String(e)
+      );
+    }
+  }, []);
+
+  useEffect(() => stop, [stop]);
+
+  const measurable = reading?.checks.filter((c) => c.measurable) ?? [];
+  const problems = measurable.filter((c) => !c.ok);
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold">🧍 Pelatih Postur (kamera)</h1>
+        <p className="mt-1 text-sm text-muted">
+          Nada bisa dinilai lewat mic, tapi postur salah cuma kelihatan dari
+          luar. Berdiri 2-3 meter dari kamera, badan sampai kaki masuk frame,
+          terus main seperti biasa.
+        </p>
+      </header>
+
+      {error && (
+        <div className="rounded-lg border border-bad/40 bg-bad/10 p-3 text-sm text-bad">
+          {error}
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-border-soft bg-surface p-4">
+        <div className="relative overflow-hidden rounded-xl bg-black">
+          {/* dicerminkan biar kayak ngaca */}
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            className="w-full -scale-x-100"
+          />
+          <canvas
+            ref={canvasRef}
+            className="pointer-events-none absolute inset-0 h-full w-full -scale-x-100"
+          />
+          {status !== "live" && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted">
+              <span className="text-4xl">🎥</span>
+              {status === "loading"
+                ? "Nyiapin model postur… (±16 MB, sekali doang)"
+                : "Kamera mati"}
+            </div>
+          )}
+          {reading && status === "live" && (
+            <div className="absolute left-3 top-3 rounded-full bg-background/80 px-3 py-1 text-sm font-bold text-accent-strong">
+              {reading.score}%
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={status === "live" ? stop : start}
+            disabled={status === "loading"}
+            className={`rounded-full px-6 py-2.5 font-semibold transition-colors disabled:opacity-50 ${
+              status === "live"
+                ? "bg-surface-2 text-foreground hover:bg-border-soft"
+                : "bg-accent text-background hover:bg-accent-strong"
+            }`}
+          >
+            {status === "live"
+              ? "■ Stop kamera"
+              : status === "loading"
+                ? "⏳ Nyiapin…"
+                : "🎥 Nyalain kamera"}
+          </button>
+          <button
+            onClick={() => setLeftHanded((v) => !v)}
+            className={`rounded-full px-4 py-2.5 text-sm transition-colors ${
+              leftHanded
+                ? "bg-accent/20 text-accent-strong"
+                : "bg-surface-2 text-muted hover:text-foreground"
+            }`}
+          >
+            {leftHanded ? "Kidal: biola di bahu kanan" : "Standar: biola di bahu kiri"}
+          </button>
+        </div>
+      </div>
+
+      {/* Daftar periksa */}
+      {reading && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">
+              Periksa postur{" "}
+              <span className="text-sm font-normal text-muted">
+                {measurable.filter((c) => c.ok).length}/{measurable.length} beres
+              </span>
+            </h2>
+            {best !== null && (
+              <span className="text-xs text-muted">terbaik sesi ini: {best}%</span>
+            )}
+          </div>
+
+          <ul className="space-y-2">
+            {reading.checks.map((c) => (
+              <li
+                key={c.id}
+                className={`animate-fade-up rounded-xl border p-3 ${
+                  !c.measurable
+                    ? "border-border-soft bg-surface opacity-60"
+                    : c.ok
+                      ? "border-good/40 bg-good/10"
+                      : "border-accent/40 bg-accent/10"
+                }`}
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <span>{!c.measurable ? "⚪" : c.ok ? "✅" : "⚠️"}</span>
+                  <span className="flex-1">{c.label}</span>
+                  <span className="font-mono text-xs text-muted">{c.value}</span>
+                </div>
+                {!c.ok && (
+                  <p className="mt-1 text-xs text-muted">{c.fix}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {problems.length > 0 && (
+            <div className="rounded-xl border border-accent/40 bg-surface p-4">
+              <h3 className="text-sm font-semibold text-accent-strong">
+                Benerin ini dulu
+              </h3>
+              <p className="mt-1 text-xs text-muted">
+                Jangan benerin semua sekaligus — ambil satu, tahan 5 menit
+                sampai kerasa normal, baru lanjut yang berikutnya. Urutan yang
+                paling ngefek: kaki → badan → bahu → lengan → bow.
+              </p>
+              <p className="mt-2 text-sm">
+                👉 <b>{problems[0].label}</b> — {problems[0].fix}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="space-y-2 rounded-xl border border-border-soft bg-surface p-4 text-xs text-muted">
+        <p>
+          📷 <b className="text-foreground">Biar akurat:</b> berdiri menghadap
+          kamera, jarak 2-3 meter, seluruh badan sampai kaki kelihatan, ruangan
+          jangan gelap. Tangan bow jangan ketutupan badan.
+        </p>
+        <p>
+          🔒 <b className="text-foreground">Privasi:</b> model pose-nya ikut
+          disimpan bareng app ini dan jalan di perangkat lu. Gambar kamera gak
+          direkam dan gak dikirim ke server mana pun.
+        </p>
+        <p>
+          ⚖️ <b className="text-foreground">Batasnya:</b> kamera cuma lihat
+          titik badan — dia gak bisa nilai pegangan jari bow atau tekanan.
+          Anggap ini cermin yang bisa ngitung, bukan pengganti guru.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function drawPose(
+  ctx: CanvasRenderingContext2D,
+  pose: Point[],
+  w: number,
+  h: number
+) {
+  ctx.lineWidth = Math.max(2, w / 300);
+  ctx.strokeStyle = "rgba(245,185,80,0.85)";
+  for (const [a, b] of SKELETON) {
+    const pa = pose[a];
+    const pb = pose[b];
+    if (!pa || !pb) continue;
+    if ((pa.visibility ?? 1) < 0.4 || (pb.visibility ?? 1) < 0.4) continue;
+    ctx.beginPath();
+    ctx.moveTo(pa.x * w, pa.y * h);
+    ctx.lineTo(pb.x * w, pb.y * h);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(74,222,128,0.9)";
+  for (const p of pose) {
+    if ((p.visibility ?? 1) < 0.4) continue;
+    ctx.beginPath();
+    ctx.arc(p.x * w, p.y * h, Math.max(2, w / 250), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
