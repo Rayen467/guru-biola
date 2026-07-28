@@ -67,44 +67,55 @@ export default function Home() {
         />
       </section>
 
+      {/* Satu tombol buat yang bingung mulai dari mana */}
+      <Link
+        href="/latihan"
+        className="flex items-center gap-4 rounded-2xl border border-accent/50 bg-accent/10 p-5 transition-colors hover:bg-accent/20"
+      >
+        <span className="text-4xl">🗓️</span>
+        <span className="flex-1">
+          <span className="block text-lg font-bold text-accent-strong">
+            Mulai sesi latihan terpandu
+          </span>
+          <span className="block text-sm text-muted">
+            Bingung mulai dari mana? Pilih 7 / 15 / 30 menit — app yang mimpin
+            urutannya, di akhir dapat analisis dari catatan latihan yang beneran
+            nambah.
+          </span>
+        </span>
+        <span className="text-2xl text-accent-strong">→</span>
+      </Link>
+
       <section className="space-y-3">
-        <h2 className="text-xl font-semibold">Rutinitas harian (15–30 menit)</h2>
-        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card
-            href="/tuner"
-            step="1"
-            title="Stem dulu"
-            desc="Wajib tiap mulai. Jarum hijau = senar pas."
-            emoji="🎯"
-          />
-          <Card
-            href="/intonasi"
-            step="2"
-            title="Latihan intonasi"
-            desc="Main nada target, app yang nilai meleset berapa cent."
-            emoji="🎻"
-          />
-          <Card
-            href="/kuping"
-            step="3"
-            title="Latih kuping"
-            desc="Buta nada bisa dilatih. 10 soal per hari."
-            emoji="👂"
-          />
-          <Card
-            href="/metronome"
-            step="4"
-            title="Rapiin tempo"
-            desc="Gesek bareng metronom. Nada bener, tempo goyang = tetap amatir."
-            emoji="🥁"
-          />
-          <Card
-            href="/kurikulum"
-            step="5"
-            title="Lanjut kurikulum"
-            desc="Level lu sekarang, latihan apa hari ini."
-            emoji="🗺️"
-          />
+        <h2 className="text-xl font-semibold">🎧 Latihan dengan mic — dinilai real-time</h2>
+        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Card href="/tuner" step="mic" title="Tuner" desc="Stem gesek atau petik. Auto-deteksi senar, kalibrasi A4, anti-noise." emoji="🎯" />
+          <Card href="/intonasi" step="mic" title="Intonasi" desc="Nada target + drone. Tangga nada & arpeggio ABRSM Grade 1." emoji="🎻" />
+          <Card href="/kuping" step="latihan" title="Latih Kuping" desc="Interval adaptif 5 level + analisis mentok di lebar berapa." emoji="👂" />
+          <Card href="/ritme" step="mic" title="Ritme" desc="Gesek per ketukan, diukur meleset berapa milidetik." emoji="⏱️" />
+          <Card href="/notasi" step="mic" title="Baca Not" desc="Not di paranada, lu mainkan. Bekal sight-reading ujian." emoji="🎼" />
+          <Card href="/lagu" step="mic" title="Mode Lagu" desc="Karaoke-biola: nada maju cuma kalau bener." emoji="🎵" />
+        </ol>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">📷 Latihan dengan kamera</h2>
+        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Card href="/postur" step="kamera" title="Postur" desc="Kuda-kuda, bahu, scroll, kelurusan bow — dicek dari video." emoji="🧍" />
+          <Card href="/bow/kamera" step="kamera" title="Cek Pegangan Bow" desc="Sudut jempol & kelingking diukur langsung + drill push-up." emoji="📷" />
+          <Card href="/bow" step="teori" title="Teori Bow" desc="3 mazhab pegangan, 6 langkah, 8 teknik gesekan." emoji="🏹" />
+        </ol>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">🧭 Alat & arah</h2>
+        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Card href="/metronome" step="alat" title="Metronom" desc="Presisi clock audio. Bar hening + tempo naik otomatis." emoji="🥁" />
+          <Card href="/rekam" step="alat" title="Rekam & Bedah" desc="Grafik intonasi per milidetik + nada yang paling sering fals." emoji="⏺️" />
+          <Card href="/fingerboard" step="alat" title="Fingerboard" desc="Peta posisi 1, klik buat dengar nadanya." emoji="🖐️" />
+          <Card href="/kurikulum" step="arah" title="Kurikulum" desc="10 level sampai Paganini, patokan ABRSM/Suzuki tiap level." emoji="🗺️" />
+          <Card href="/pencapaian" step="arah" title="Pencapaian" desc="Streak, 13 lencana, misi harian, kartu pamer progres." emoji="🏅" />
+          <Card href="/statistik" step="arah" title="Statistik" desc="Riwayat 30 hari + cadangan buat pindah perangkat." emoji="📊" />
         </ol>
       </section>
 
