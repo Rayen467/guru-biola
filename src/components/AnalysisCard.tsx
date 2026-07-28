@@ -85,8 +85,8 @@ export default function AnalysisCard({
         {analysis.verdicts.map((v, i) => (
           <li
             key={v.title}
-            className="animate-fade-up flex items-start gap-3 rounded-lg bg-surface-2 p-3"
-            style={{ animationDelay: `${i * 60}ms` }}
+            className="animate-slide-in flex items-start gap-3 rounded-lg bg-surface-2 p-3"
+            style={{ animationDelay: `${i * 70}ms` }}
           >
             <span className="text-lg">{v.icon}</span>
             <div className="flex-1">

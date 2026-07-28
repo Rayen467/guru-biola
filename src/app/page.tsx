@@ -248,7 +248,7 @@ function Card({
         className="lift press block h-full rounded-xl border border-border-soft bg-surface p-4 hover:border-accent"
       >
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-2xl">{emoji}</span>
+          <span className="animate-float inline-block text-2xl">{emoji}</span>
           <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">
             langkah {step}
           </span>

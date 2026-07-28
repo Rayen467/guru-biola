@@ -16,6 +16,11 @@ export interface MetronomeSettings {
   beatsPerBar: number;
   subdivision: number; // 1=per ketuk, 2=duplet, 3=triol, 4=1/16
   accentFirst: boolean;
+  // Pola aksen per ketukan: 2 = aksen kuat, 1 = biasa, 0 = diam.
+  // Ini yang bikin metronom bisa dipakai buat pola gesekan (mis. 2 0 1 0 buat
+  // latihan nada berdenyut) — bukan cuma "ketukan pertama keras".
+  // Kalau panjangnya gak sama dengan beatsPerBar, sisanya dianggap 1.
+  accentPattern: number[];
   volume: number; // 0..1
   silentEvery: number; // 0=mati; N=tiap bar ke-N dibisukan (latihan pulsa dalam)
   rampEvery: number; // 0=mati; naikkan tempo tiap N bar
@@ -28,6 +33,7 @@ export const DEFAULT_SETTINGS: MetronomeSettings = {
   beatsPerBar: 4,
   subdivision: 1,
   accentFirst: true,
+  accentPattern: [2, 1, 1, 1],
   volume: 0.7,
   silentEvery: 0,
   rampEvery: 0,
@@ -62,13 +68,48 @@ export function loadSettings(): MetronomeSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw
+    const s = raw
       ? { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<MetronomeSettings>) }
       : DEFAULT_SETTINGS;
+    // Setelan lama gak punya pola aksen — dibikinin dari accentFirst biar
+    // pengguna lama gak tiba-tiba kehilangan aksennya.
+    return { ...s, accentPattern: fitPattern(s.accentPattern, s.beatsPerBar, s.accentFirst) };
   } catch {
     return DEFAULT_SETTINGS;
   }
 }
+
+// Panjang pola selalu disesuaikan sama birama: kepanjangan dipotong,
+// kependekan diisi ketukan biasa.
+export function fitPattern(
+  pattern: number[] | undefined,
+  beats: number,
+  accentFirst = true
+): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < beats; i++) {
+    const v = pattern?.[i];
+    out.push(typeof v === "number" ? v : i === 0 && accentFirst ? 2 : 1);
+  }
+  return out;
+}
+
+export interface TempoPreset {
+  label: string;
+  bpm: number;
+  note: string;
+}
+
+// Patokan tempo yang kepakai di latihan biola — bukan daftar istilah Italia
+// lengkap, tapi yang beneran dipakai buat ngatur latihan.
+export const TEMPO_PRESETS: TempoPreset[] = [
+  { label: "Larghissimo", bpm: 40, note: "Nada panjang, kontrol bow" },
+  { label: "Adagio", bpm: 60, note: "Tangga nada pelan, cek intonasi" },
+  { label: "Andante", bpm: 80, note: "Lagu Suzuki awal" },
+  { label: "Moderato", bpm: 100, note: "Détaché rata" },
+  { label: "Allegro", bpm: 130, note: "Repertoar cepat" },
+  { label: "Presto", bpm: 170, note: "Uji batas — jangan dipaksa" },
+];
 
 export function saveSettings(s: MetronomeSettings) {
   try {
@@ -182,9 +223,14 @@ export function useMetronome(settings: MetronomeSettings) {
           s.silentEvery > 0 &&
           barRef.current % s.silentEvery === s.silentEvery - 1;
 
-        if (!silent) {
+        // Pola aksen: 2 = keras, 1 = biasa, 0 = ketukan ini sengaja dilewat.
+        // Ketukan yang dilewat itu bukan bug — dipakai buat latihan pola
+        // gesekan dan buat maksa telinga ngisi sendiri celahnya.
+        const accentLevel = s.accentPattern?.[beat] ?? (beat === 0 && s.accentFirst ? 2 : 1);
+        const muted = accentLevel === 0;
+        if (!silent && !muted) {
           const kind =
-            sub !== 0 ? "sub" : beat === 0 && s.accentFirst ? "accent" : "beat";
+            sub !== 0 ? "sub" : accentLevel === 2 ? "accent" : "beat";
           click(ctx, nextTimeRef.current, kind, s.volume);
         }
         queueRef.current.push({

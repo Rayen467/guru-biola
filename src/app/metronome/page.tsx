@@ -6,6 +6,8 @@ import {
   DEFAULT_SETTINGS,
   MAX_BPM,
   MIN_BPM,
+  TEMPO_PRESETS,
+  fitPattern,
   loadSettings,
   saveSettings,
   tempoTerm,
@@ -168,7 +170,10 @@ export default function MetronomePage() {
             −
           </button>
           <div>
-            <div className="text-6xl font-bold tabular-nums text-accent-strong">
+            <div
+              key={liveBpm}
+              className="animate-tick text-6xl font-bold tabular-nums text-accent-strong"
+            >
               {liveBpm}
             </div>
             <div className="text-xs text-muted">BPM</div>
@@ -193,11 +198,20 @@ export default function MetronomePage() {
           aria-label="Tempo"
         />
 
+        {/* Bandul — ikut ketukan, arahnya ganti tiap ketuk kayak metronom kayu */}
+        <Pendulum
+          running={running}
+          beat={pos.beat}
+          bpm={liveBpm}
+          silent={pos.silent}
+        />
+
         {/* Titik ketukan */}
         <div className="mt-5 flex items-center justify-center gap-2">
           {Array.from({ length: settings.beatsPerBar }).map((_, i) => {
             const on = running && pos.beat === i;
-            const accent = i === 0 && settings.accentFirst;
+            const level = settings.accentPattern?.[i] ?? 1;
+            const accent = level === 2;
             return (
               <div
                 key={i}
@@ -237,12 +251,46 @@ export default function MetronomePage() {
           </button>
           <button
             onClick={tap}
-            className="rounded-full bg-surface-2 px-5 py-2.5 text-sm text-foreground transition-colors hover:bg-border-soft"
+            className="press rounded-full bg-surface-2 px-5 py-2.5 text-sm text-foreground hover:bg-border-soft"
           >
             👆 Tap tempo
           </button>
+          {/* Setengah / dobel: cara paling cepat pindah antara latihan pelan
+              dan tempo target tanpa kehilangan hitungan. */}
+          <button
+            onClick={() => patch({ bpm: Math.max(MIN_BPM, Math.round(settings.bpm / 2)) })}
+            className="press rounded-full bg-surface-2 px-3 py-2.5 text-xs text-muted hover:text-foreground"
+            title="Setengah tempo"
+          >
+            ÷2
+          </button>
+          <button
+            onClick={() => patch({ bpm: Math.min(MAX_BPM, settings.bpm * 2) })}
+            className="press rounded-full bg-surface-2 px-3 py-2.5 text-xs text-muted hover:text-foreground"
+            title="Dobel tempo"
+          >
+            ×2
+          </button>
         </div>
         {tapInfo && <div className="mt-2 text-xs text-muted">{tapInfo}</div>}
+
+        {/* Preset tempo — tiap angka dikasih konteks latihannya */}
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {TEMPO_PRESETS.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => patch({ bpm: t.bpm })}
+              title={t.note}
+              className={`press rounded-full px-3 py-1.5 text-[11px] ${
+                Math.abs(settings.bpm - t.bpm) <= 2
+                  ? "bg-accent font-semibold text-background"
+                  : "bg-surface-2 text-muted hover:text-foreground"
+              }`}
+            >
+              {t.label} {t.bpm}
+            </button>
+          ))}
+        </div>
       </div>
 
       <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
@@ -255,11 +303,53 @@ export default function MetronomePage() {
               <Chip
                 key={b.label}
                 active={settings.beatsPerBar === b.beats}
-                onClick={() => patch({ beatsPerBar: b.beats })}
+                onClick={() =>
+                  patch({
+                    beatsPerBar: b.beats,
+                    // pola aksen ikut dipotong/dipanjangin, jangan sampai
+                    // ketukan baru diam gara-gara pola lama kependekan
+                    accentPattern: fitPattern(settings.accentPattern, b.beats),
+                  })
+                }
               >
                 {b.label}
               </Chip>
             ))}
+          </div>
+        </Row>
+
+        <Row
+          label="Pola aksen"
+          hint="Klik ketukannya buat muter: • biasa → – DIAM → ◆ keras. Ketukan diam itu latihan, bukan rusak — telinga lu yang harus ngisi."
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {fitPattern(settings.accentPattern, settings.beatsPerBar).map(
+              (lvl, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    const next = fitPattern(
+                      settings.accentPattern,
+                      settings.beatsPerBar
+                    );
+                    next[i] = (lvl + 2) % 3; // 2 → 1 → 0 → 2
+                    patch({ accentPattern: next });
+                  }}
+                  className={`press flex h-9 w-9 items-center justify-center rounded-lg text-xs font-bold ${
+                    lvl === 2
+                      ? "bg-accent text-background"
+                      : lvl === 1
+                        ? "bg-surface-2 text-foreground"
+                        : "border border-dashed border-muted bg-transparent text-muted"
+                  }`}
+                  title={
+                    lvl === 2 ? "aksen keras" : lvl === 1 ? "ketukan biasa" : "diam"
+                  }
+                >
+                  {lvl === 2 ? "◆" : lvl === 1 ? "•" : "–"}
+                </button>
+              )
+            )}
           </div>
         </Row>
 
@@ -474,6 +564,58 @@ function buildMetronomeAnalysis(
     subline: `${r.bars} bar di birama ${s.beatsPerBar}/4 · skor ini menilai POLA latihannya, bukan permainan lu`,
     verdicts,
   };
+}
+
+// Bandul metronom kayu. Arahnya ganti tiap ketukan dan lamanya ayunan
+// dihitung dari BPM, jadi geraknya nyambung sama bunyinya — bukan animasi
+// hias yang jalan sendiri.
+function Pendulum({
+  running,
+  beat,
+  bpm,
+  silent,
+}: {
+  running: boolean;
+  beat: number;
+  bpm: number;
+  silent: boolean;
+}) {
+  const angle = running ? (beat % 2 === 0 ? -26 : 26) : 0;
+  const beatMs = 60000 / Math.max(1, bpm);
+  return (
+    <div className="mx-auto mt-4 h-24 w-40">
+      <svg viewBox="0 0 160 100" className="h-full w-full">
+        <line x1="20" y1="92" x2="140" y2="92" stroke="var(--border)" strokeWidth="3" />
+        <g
+          style={{
+            transformOrigin: "80px 92px",
+            transform: `rotate(${angle}deg)`,
+            // sedikit lebih cepat dari satu ketuk biar sempat "berhenti" di ujung
+            transition: running ? `transform ${beatMs * 0.82}ms cubic-bezier(0.37,0,0.63,1)` : "transform 300ms ease",
+          }}
+        >
+          <line
+            x1="80"
+            y1="92"
+            x2="80"
+            y2="14"
+            stroke={silent ? "var(--muted)" : "var(--accent-strong)"}
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+          <circle
+            cx="80"
+            cy="30"
+            r="9"
+            fill={silent ? "var(--surface-2)" : "var(--accent)"}
+            stroke="var(--border)"
+            strokeWidth="2"
+          />
+        </g>
+        <circle cx="80" cy="92" r="5" fill="var(--muted)" />
+      </svg>
+    </div>
+  );
 }
 
 function Row({

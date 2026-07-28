@@ -33,6 +33,9 @@ export default function RitmePage() {
     beatsPerBar,
     subdivision: 1,
     accentFirst: true,
+    // Latihan ritme selalu pakai aksen di ketukan 1 dan sisanya biasa —
+    // pola aksen bebas itu urusan halaman metronom, di sini bikin ngukur ngaco.
+    accentPattern: Array.from({ length: beatsPerBar }, (_, i) => (i === 0 ? 2 : 1)),
     volume: muteClick ? 0 : 0.7,
     silentEvery: 0,
     rampEvery: 0,
