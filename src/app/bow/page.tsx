@@ -33,6 +33,24 @@ export default function BowPage() {
         </p>
       </header>
 
+      {/* Teori doang gak bikin tangan ngerti — ini pintu ke prakteknya */}
+      <Link
+        href="/bow/kamera"
+        className="flex items-center gap-4 rounded-2xl border border-accent/50 bg-accent/10 p-4 transition-colors hover:bg-accent/20"
+      >
+        <span className="text-3xl">📷</span>
+        <span className="flex-1">
+          <span className="block text-sm font-bold text-accent-strong">
+            Cek pegangan lu pakai kamera
+          </span>
+          <span className="block text-xs text-muted">
+            Kamera ngukur sudut jempol & kelingking lu langsung. Baca teorinya
+            doang gak bakal ketahuan jempol lu diam-diam lurus.
+          </span>
+        </span>
+        <span className="text-accent-strong">→</span>
+      </Link>
+
       {/* 1. Anatomi */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">1. Kenali dulu bagiannya</h2>
