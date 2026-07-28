@@ -37,7 +37,7 @@ export default function Nav() {
           <Link
             key={l.href}
             href={l.href}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${
+            className={`press shrink-0 rounded-full px-3 py-1.5 text-sm ${
               path === l.href
                 ? "bg-accent text-background font-semibold"
                 : "text-muted hover:bg-surface-2 hover:text-foreground"

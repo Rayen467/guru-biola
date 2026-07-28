@@ -219,7 +219,11 @@ export default function TunerPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-border-soft bg-surface p-6 text-center">
+      <div
+        className={`rounded-2xl border bg-surface p-6 text-center transition-colors ${
+          inTune ? "border-good animate-glow-good" : "border-border-soft"
+        }`}
+      >
         {/* Instruksi utama — gede, jelas */}
         <div className="min-h-28">
           {reading && str ? (
@@ -238,8 +242,27 @@ export default function TunerPage() {
               </>
             ) : inTune ? (
               <>
-                <div className="animate-pop inline-block rounded-full px-4 text-5xl font-bold text-good animate-hit">
+                <div className="animate-pop animate-hit relative inline-block rounded-full px-4 text-5xl font-bold text-good">
                   ✓ PAS!
+                  {/* percikan kecil — muncul sekali tiap senar kena */}
+                  {[
+                    { sx: "-26px", sy: "-26px" },
+                    { sx: "22px", sy: "-30px" },
+                    { sx: "-32px", sy: "8px" },
+                    { sx: "30px", sy: "6px" },
+                  ].map((p, i) => (
+                    <span
+                      key={i}
+                      className="spark absolute left-1/2 top-1/2 h-1.5 w-1.5 rounded-full bg-good"
+                      style={
+                        {
+                          "--sx": p.sx,
+                          "--sy": p.sy,
+                          animationDelay: `${i * 60}ms`,
+                        } as React.CSSProperties
+                      }
+                    />
+                  ))}
                 </div>
                 <div className="mt-1 text-sm text-muted">
                   Senar {str.name} beres ({cents >= 0 ? "+" : ""}
@@ -320,8 +343,9 @@ export default function TunerPage() {
             user biar gak ngerasa alatnya diem-diem rusak. */}
         {active && relax > 0.15 && (
           <div className="mt-3 rounded-lg border border-accent/40 bg-accent/10 p-2.5 text-left text-xs">
+            {/* dibulatin ke 10% — angka yang gerak tiap frame gak kebaca */}
             <b className="text-accent-strong">
-              Lagi ngelonggarin deteksi ({Math.round(relax * 100)}%)
+              Lagi ngelonggarin deteksi ({Math.round(relax * 10) * 10}%)
             </b>{" "}
             — udah beberapa detik gesekan lu gak lolos saringan, jadi ambangnya
             diturunin otomatis.
@@ -329,7 +353,7 @@ export default function TunerPage() {
               <>
                 {" "}
                 Nada mentah yang kebaca sekarang:{" "}
-                <b className="text-foreground">{rawFreq.toFixed(1)} Hz</b>.
+                <b className="text-foreground">{Math.round(rawFreq)} Hz</b>.
               </>
             )}{" "}
             Kalau tetap gak kebaca: deketin mic ke biola (20-30 cm), atau geser

@@ -37,7 +37,7 @@ export default function AnalysisCard({
   const circumference = 2 * Math.PI * 42;
 
   return (
-    <div className="animate-fade-up rounded-2xl border border-accent/40 bg-surface p-5">
+    <div className="animate-fade-up sweep relative overflow-hidden rounded-2xl border border-accent/40 bg-surface p-5">
       <div className="flex flex-wrap items-center gap-4">
         <div className="relative h-28 w-28 shrink-0">
           <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">

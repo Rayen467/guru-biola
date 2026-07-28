@@ -147,6 +147,136 @@ body {
   animation: shimmer 1.6s linear infinite;
 }
 
+/* Napas pelan buat keadaan "pas" — nyala-redup lembut, bukan kedip. */
+@keyframes glow-good {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 22px 4px rgba(74, 222, 128, 0.28);
+  }
+}
+
+/* Kilau yang lewat sekali — dipakai pas sesuatu baru selesai. */
+@keyframes sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+/* Batang grafik naik dari nol pas pertama tampil. */
+@keyframes bar-rise {
+  from {
+    transform: scaleY(0.05);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* Percikan kecil di sekitar nada yang kena. */
+@keyframes spark {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.4);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--sx, 0), var(--sy, -22px)) scale(1);
+  }
+}
+
+/* Gradien pelan di judul — gerak 8 detik sekali putaran, gak ganggu baca. */
+@keyframes hue-drift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animate-glow-good {
+  animation: glow-good 1.8s ease-in-out infinite;
+}
+
+.animate-bar {
+  animation: bar-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom;
+}
+
+.spark {
+  animation: spark 0.7s ease-out forwards;
+}
+
+/* Tombol kerasa ditekan. Dipasang di elemen yang sering dipencet. */
+.press {
+  transition: transform 0.12s ease, background-color 0.15s ease;
+}
+.press:active {
+  transform: scale(0.95);
+}
+
+/* Kartu naik dikit pas disentuh kursor. */
+.lift {
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Judul dengan gradien yang jalan pelan. */
+.title-drift {
+  background: linear-gradient(
+    100deg,
+    var(--accent-strong),
+    var(--foreground),
+    var(--accent)
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: hue-drift 8s ease-in-out infinite;
+}
+
+/* Garis kilau di atas kartu yang baru muncul. */
+.sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.12),
+    transparent
+  );
+  width: 40%;
+  animation: sweep 1.1s ease-out 1 both;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-glow-good,
+  .animate-bar,
+  .spark,
+  .title-drift,
+  .sweep::after,
+  .press,
+  .lift {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up,
   .animate-pop,

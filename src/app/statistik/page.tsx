@@ -77,13 +77,13 @@ export default function StatistikPage() {
           30 hari terakhir
         </h2>
         <div className="mt-4 flex h-28 items-end gap-1">
-          {series.map((d) => {
+          {series.map((d, idx) => {
             const h = d.seconds > 0 ? Math.max(4, (d.seconds / maxSec) * 100) : 2;
             return (
               <div
                 key={d.key}
                 title={`${d.key}: ${formatDuration(d.seconds)}`}
-                className={`flex-1 rounded-sm ${
+                className={`animate-bar flex-1 rounded-sm ${
                   d.seconds >= TARGET_SECONDS
                     ? "bg-good"
                     : d.seconds >= MIN_PRACTICE_SECONDS
@@ -92,7 +92,7 @@ export default function StatistikPage() {
                         ? "bg-accent/40"
                         : "bg-surface-2"
                 }`}
-                style={{ height: `${h}%` }}
+                style={{ height: `${h}%`, animationDelay: `${idx * 12}ms` }}
               />
             );
           })}

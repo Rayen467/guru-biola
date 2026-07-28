@@ -40,7 +40,7 @@ export default function Home() {
     <div className="space-y-8">
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">
-          Dari nol sampai <span className="text-accent-strong">Paganini</span> 👹
+          Dari nol sampai <span className="title-drift">Paganini</span> 👹
         </h1>
         <p className="max-w-2xl text-muted">
           Ini guru privat biola lu. Buta nada? Gak bisa ngepasin senar? Justru
@@ -245,7 +245,7 @@ function Card({
     <li>
       <Link
         href={href}
-        className="block h-full rounded-xl border border-border-soft bg-surface p-4 transition-colors hover:border-accent"
+        className="lift press block h-full rounded-xl border border-border-soft bg-surface p-4 hover:border-accent"
       >
         <div className="mb-2 flex items-center justify-between">
           <span className="text-2xl">{emoji}</span>
