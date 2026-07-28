@@ -180,7 +180,46 @@ function mix(...sigs) {
   return out;
 }
 
-function run(name, signal, { expect, f0 = null, sensitivity = 0.5 }) {
+// Di app, sinyal mic lewat dua highpass 165 Hz + lowpass 5 kHz SEBELUM masuk
+// detektor (lihat usePitch). Tanpa meniru itu di sini, hasil uji bohong:
+// dengung 50 Hz yang di app udah kebuang bakal bikin deteksi meleset di uji.
+function biquad(sig, { type, freq, q = 0.707 }) {
+  const w0 = (2 * Math.PI * freq) / SR;
+  const alpha = Math.sin(w0) / (2 * q);
+  const cos = Math.cos(w0);
+  let b0, b1, b2;
+  const a0 = 1 + alpha;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha;
+  if (type === "highpass") {
+    b0 = (1 + cos) / 2;
+    b1 = -(1 + cos);
+    b2 = (1 + cos) / 2;
+  } else {
+    b0 = (1 - cos) / 2;
+    b1 = 1 - cos;
+    b2 = (1 - cos) / 2;
+  }
+  const out = new Float32Array(sig.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < sig.length; i++) {
+    const x0 = sig[i];
+    const y0 =
+      (b0 / a0) * x0 + (b1 / a0) * x1 + (b2 / a0) * x2 - (a1 / a0) * y1 - (a2 / a0) * y2;
+    out[i] = y0;
+    x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+  }
+  return out;
+}
+
+function micChain(sig) {
+  let s = biquad(sig, { type: "highpass", freq: 165 });
+  s = biquad(s, { type: "highpass", freq: 165 });
+  return biquad(s, { type: "lowpass", freq: 5000 });
+}
+
+function run(name, rawSignal, { expect, f0 = null, sensitivity = 0.5, skipMs = 1200 }) {
+  const signal = micChain(rawSignal);
   const det = new ViolinDetector(SIZE, { sampleRate: SR, sensitivity });
   const buf = new Float32Array(SIZE);
   const frames = Math.floor(DURATION_MS / HOP_MS);
@@ -200,7 +239,7 @@ function run(name, signal, { expect, f0 = null, sensitivity = 0.5 }) {
       );
     }
 
-    if (now < 1200) continue; // lewati kalibrasi + waktu mantap
+    if (now < skipMs) continue; // lewati kalibrasi + waktu mantap
     judged++;
     if (expect === "detect") {
       if (d.freq !== null && Math.abs(1200 * Math.log2(d.freq / f0)) < 30) correct++;
@@ -271,6 +310,36 @@ results.push(run("Ruangan berisik campur", mix(fanHum(0.05), speech(0.08), typin
 // sama. Yang ketolak itu musik biasa yang gantian nada tiap ketuk.
 results.push(
   run("Musik speaker, nada cepat", musicFromSpeaker(0.12), { expect: "reject" })
+);
+
+// Profil noise ruangan (ala Krisp): ruangan berisik dipelajari dulu selama
+// kalibrasi, baru biolanya masuk. Gesekan pelan di ruangan ber-AC harus tetap
+// kebaca, dan ruangannya sendiri harus tetap ditolak walau kenceng.
+console.log("\n--- PROFIL NOISE RUANGAN ---");
+function afterCalibration(noise, signal, startMs = 1000) {
+  const out = new Float32Array(N);
+  const startIdx = Math.floor((startMs / 1000) * SR);
+  for (let i = 0; i < N; i++) {
+    out[i] = noise[i] + (i >= startIdx ? signal[i - startIdx] : 0);
+  }
+  return out;
+}
+// Batas fisika, bukan batas kode: kalau noise-nya sama keras atau lebih keras
+// dari biolanya (SNR ≤ 0 dB), nada aslinya emang udah ketimbun — peredam
+// noise secanggih apa pun cuma bisa nebak. Yang diuji di sini kondisi wajar:
+// AC nyala, biola tetap lebih keras dari AC-nya.
+results.push(
+  run("AC nyala, biola nyusul", afterCalibration(fanHum(0.03), violin(440, 0.08)), {
+    expect: "detect",
+    f0: 440,
+    skipMs: 1600,
+  })
+);
+results.push(run("AC kenceng doang", fanHum(0.12), { expect: "reject" }));
+results.push(
+  run("Ruangan berisik, orang ngomong nyusul", afterCalibration(fanHum(0.05), voiceVowel(240, 0.16)), {
+    expect: "reject",
+  })
 );
 
 // Ujung-ujung slider sensitivitas juga harus waras.

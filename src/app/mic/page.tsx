@@ -58,6 +58,7 @@ export default function MicPage() {
     harmonic,
     timbre,
     harmonicCount,
+    noiseMatch,
     flatness,
     confidence,
     volumeDb,
@@ -195,6 +196,14 @@ export default function MicPage() {
           display={String(harmonicCount)}
           hint="Berapa deret harmonik yang nongol jelas. Dawai biasanya ≥4; kipas bernada dan siulan cuma 1-2."
           bad={harmonicCount < 3}
+        />
+        <Meter
+          label="Mirip suara ruangan"
+          value={noiseMatch}
+          min={0}
+          max={1}
+          display={noiseMatch.toFixed(2)}
+          hint="Dibandingin sama profil ruangan yang direkam pas kalibrasi. Deket 1 = ini cuma kipas/AC/dengung ruangan. Gesekan biola bikin puncak baru, jadi angkanya turun."
         />
         <Meter
           label="Kerataan spektrum"

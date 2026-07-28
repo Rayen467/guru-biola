@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import PwaSetup from "@/components/PwaSetup";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,7 +17,25 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Guru Biola — Guru privat biola AI",
   description:
-    "Belajar biola dari nol sampai Paganini: tuner, latihan intonasi, ear training, kurikulum, dan guru AI real-time.",
+    "Belajar biola dari nol sampai Paganini: tuner, latihan intonasi, ear training, metronom, latihan ritme, baca not, dan guru AI real-time.",
+  manifest: "manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Guru Biola",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: "icon-192.png",
+    apple: "icon-192.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#16110c",
+  // Halaman latihan dipakai sambil megang biola — zoom gak sengaja pas
+  // kesenggol dagu/bahu itu ganggu, tapi jangan dikunci total biar yang
+  // matanya kurang awas tetap bisa perbesar.
+  maximumScale: 5,
 };
 
 export default function RootLayout({
@@ -32,6 +51,7 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col">
         <Nav />
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+          <PwaSetup />
           {children}
         </main>
         <footer className="border-t border-border-soft py-4 text-center text-xs text-muted">

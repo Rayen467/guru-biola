@@ -23,6 +23,7 @@ export interface PitchState {
   harmonic: number;      // 0..1 — porsi energi di deret harmonik
   timbre: number;        // 0..1 — porsi energi harmonik di partial 1-2 (ciri dawai)
   harmonicCount: number; // jumlah partial yang nongol jelas
+  noiseMatch: number;    // 0..1 — kemiripan dengan profil suara ruangan
   flatness: number;      // 0..1 — makin kecil makin "bernada"
   rawFreq: number;       // kandidat mentah sebelum disaring (buat diagnosa)
   reason: Detection["reason"];
@@ -94,6 +95,7 @@ const EMPTY: PitchState = {
   harmonic: 0,
   timbre: 0,
   harmonicCount: 0,
+  noiseMatch: 0,
   flatness: 1,
   rawFreq: 0,
   reason: "quiet",
@@ -280,6 +282,7 @@ export function usePitch(options: PitchOptions = {}) {
           harmonic: d.harmonic,
           timbre: d.timbre,
           harmonicCount: d.harmonicCount,
+          noiseMatch: d.noiseMatch,
           flatness: d.flatness,
           rawFreq: d.rawFreq,
           reason: d.reason,

@@ -15,6 +15,7 @@ Guru privat biola pribadi — dari nol total sampai jalur Paganini. Web app Next
 | `/statistik` | Riwayat 30 hari, streak, akurasi per keterampilan |
 | `/notasi` | Baca not balok: not digambar di paranada (SVG, tanpa font musik), dimainkan, diverifikasi lewat mic |
 | `/rekam` | Rekam latihan + grafik intonasi per milidetik, pemutar dengan playhead, daftar nada yang paling sering fals |
+| `/pencapaian` | Level dari jam terbang, misi harian, 13 lencana, kartu progres siap dibagikan |
 | `/mic` | Diagnosa deteksi: level, suara latar, SNR, kejernihan, skor harmonik, kerataan spektrum + alasan diterima/ditolak |
 | `/metronome` | Metronom presisi (dijadwalkan ke clock audio, bukan timer JS). Tap tempo, birama, subdivisi, bar hening, tempo naik otomatis |
 | `/lagu` | Mode karaoke-biola: nada baru maju kalau dimainkan benar |

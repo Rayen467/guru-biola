@@ -13,7 +13,9 @@ const nextConfig: NextConfig = isExport
       basePath,
       trailingSlash: true,
       images: { unoptimized: true },
+      // Dipakai kode klien buat nyusun path absolut (service worker, manifest).
+      env: { NEXT_PUBLIC_BASE_PATH: basePath },
     }
-  : {};
+  : { env: { NEXT_PUBLIC_BASE_PATH: "" } };
 
 export default nextConfig;

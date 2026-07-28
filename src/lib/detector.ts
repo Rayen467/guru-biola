@@ -36,6 +36,9 @@ export interface Detection {
   // dominan di partial bawah; vokal manusia ditarik formant ke partial 3-6.
   timbre: number;
   harmonicCount: number; // berapa partial yang beneran nongol di atas lantai spektrum
+  // 0..1 — kemiripan bentuk spektrum frame ini dengan profil suara ruangan.
+  // Mendekati 1 = ini cuma ruangannya (kipas/AC/dengung), bukan suara baru.
+  noiseMatch: number;
   level: number; // RMS
   noiseFloor: number; // RMS suara latar
   calibrating: boolean;
@@ -137,6 +140,15 @@ export class ViolinDetector {
   private startedAt: number | null = null;
   private history: { t: number; f: number }[] = [];
   private lockedUntil = 0;
+  // Profil spektrum suara ruangan (rata-rata magnitudo per bin), dipelajari
+  // pas kalibrasi dan terus diperbarui pelan tiap frame yang bukan nada.
+  // Ini inti cara kerja peredam noise macam Krisp: kenali dulu bentuk
+  // noise-nya, baru kurangi. Bedanya, punya kita gak nyisain suara orang —
+  // suara orang justru termasuk yang harus dibuang.
+  private noiseSpec: Float32Array;
+  private noiseSpecReady = false;
+  private denoised: Float32Array;
+  private noiseMatch = 0;
 
   constructor(size: number, options: DetectorOptions) {
     this.sampleRate = options.sampleRate;
@@ -155,6 +167,8 @@ export class ViolinDetector {
     this.re = new Float32Array(size);
     this.im = new Float32Array(size);
     this.mag = new Float32Array(size / 2);
+    this.noiseSpec = new Float32Array(size / 2);
+    this.denoised = new Float32Array(size / 2);
     // Jendela Hann: tanpa ini, ujung buffer yang kepotong bikin spektrum
     // bocor ke mana-mana dan skor harmonik jadi ngaco.
     this.window = new Float32Array(size);
@@ -185,6 +199,42 @@ export class ViolinDetector {
     }
   }
 
+  // Pengurangan spektral: bentuk noise ruangan yang udah dipelajari dikurangin
+  // dari spektrum frame ini. Sisa yang nongol = suara yang BEDA dari ruangan.
+  // Sisanya dipakai buat semua ukuran (flatness, harmonik, timbre), jadi biola
+  // pelan di ruangan ber-AC tetap kebaca tanpa harus ngelonggarin ambang.
+  private denoise(over = 1.6): void {
+    for (let i = 0; i < this.mag.length; i++) {
+      const clean = this.mag[i] - (this.noiseSpecReady ? over * this.noiseSpec[i] : 0);
+      // sisa kecil dibiarin (spectral floor) biar gak muncul "lubang" yang
+      // malah bikin spektrum keliatan lebih bernada dari aslinya
+      this.denoised[i] = Math.max(clean, this.mag[i] * 0.05);
+    }
+  }
+
+  // Seberapa mirip bentuk spektrum frame ini sama profil ruangan (cosine
+  // similarity, 0..1). Mendekati 1 = ini cuma ruangannya doang.
+  private similarityToNoise(): number {
+    if (!this.noiseSpecReady) return 0;
+    let dot = 0;
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < this.mag.length; i++) {
+      dot += this.mag[i] * this.noiseSpec[i];
+      a += this.mag[i] * this.mag[i];
+      b += this.noiseSpec[i] * this.noiseSpec[i];
+    }
+    if (a <= 0 || b <= 0) return 0;
+    return dot / Math.sqrt(a * b);
+  }
+
+  private learnNoise(rate: number): void {
+    for (let i = 0; i < this.mag.length; i++) {
+      this.noiseSpec[i] += (this.mag[i] - this.noiseSpec[i]) * rate;
+    }
+    this.noiseSpecReady = true;
+  }
+
   // Rata-rata geometrik / rata-rata aritmetik. Noise putih ≈ 1, nada murni ≈ 0.
   private flatness(): number {
     const binHz = this.sampleRate / (this.mag.length * 2);
@@ -194,7 +244,7 @@ export class ViolinDetector {
     let sum = 0;
     let count = 0;
     for (let i = lo; i <= hi; i++) {
-      const m = this.mag[i] + 1e-12;
+      const m = this.denoised[i] + 1e-12;
       logSum += Math.log(m);
       sum += m;
       count++;
@@ -218,13 +268,13 @@ export class ViolinDetector {
     const lo = Math.max(1, Math.floor(BAND_LO / binHz));
     const hi = Math.min(this.mag.length - 1, Math.ceil(BAND_HI / binHz));
     let total = 0;
-    for (let i = lo; i <= hi; i++) total += this.mag[i] * this.mag[i];
+    for (let i = lo; i <= hi; i++) total += this.denoised[i] * this.denoised[i];
     if (total <= 0) return { score: 0, timbre: 0, count: 0 };
 
     // Lantai spektrum = median energi bin. Partial dianggap "nongol" kalau
     // energinya jauh di atas lantai ini — bukan sekadar ada angkanya.
     const band: number[] = [];
-    for (let i = lo; i <= hi; i += 3) band.push(this.mag[i] * this.mag[i]);
+    for (let i = lo; i <= hi; i += 3) band.push(this.denoised[i] * this.denoised[i]);
     band.sort((a, b) => a - b);
     const floor = band[Math.floor(band.length / 2)] || 1e-12;
 
@@ -238,7 +288,7 @@ export class ViolinDetector {
       const to = Math.min(hi, Math.ceil(center) + 2);
       let peak = 0;
       for (let i = from; i <= to; i++) {
-        const e = this.mag[i] * this.mag[i];
+        const e = this.denoised[i] * this.denoised[i];
         if (e > peak) peak = e;
       }
       partials.push(peak);
@@ -291,6 +341,7 @@ export class ViolinDetector {
       harmonic: 0,
       timbre: 0,
       harmonicCount: 0,
+      noiseMatch: 0,
       level,
       noiseFloor: this.noiseFloor,
       calibrating,
@@ -309,17 +360,32 @@ export class ViolinDetector {
     if (calibrating) {
       updateFloor(true);
       this.history = [];
+      // Sedetik pertama dipakai motret bentuk suara ruangan — kipas, AC,
+      // dengung kulkas, jalanan. Ini yang nanti dikurangin tiap frame.
+      //
+      // Tapi kalau user-nya ternyata udah main duluan pas kalibrasi, potretnya
+      // bakal berisi biola — dan profil yang kenal biola justru bakal MEMBUANG
+      // biola. Jadi frame yang keliatan bernada gak ikut dipelajari.
+      this.spectrum(buf);
+      this.denoise(0); // pengurangan dimatiin: kita lagi ngukur mentahnya
+      const [, calClarity] = this.pitchy.findPitch(buf, this.sampleRate);
+      if (calClarity < 0.85 || this.flatness() > 0.5) this.learnNoise(0.35);
       return { ...base, noiseFloor: this.noiseFloor, reason: "calibrating" };
     }
 
     if (level <= th.gate) {
       updateFloor(false);
       this.history.length = 0;
+      // Ruangan lagi sepi = kesempatan bagus nyegerin profil noise-nya.
+      this.spectrum(buf);
+      this.learnNoise(0.08);
       return { ...base, noiseFloor: this.noiseFloor, reason: "quiet" };
     }
 
     const [pitch, clarity] = this.pitchy.findPitch(buf, this.sampleRate);
     this.spectrum(buf);
+    this.denoise();
+    this.noiseMatch = this.similarityToNoise();
     const flatness = this.flatness();
 
     if (!(pitch > FREQ_MIN && pitch < FREQ_MAX)) {
@@ -328,11 +394,24 @@ export class ViolinDetector {
       return { ...base, rawFreq: pitch, clarity, flatness, reason: "range" };
     }
 
-    // Noise/desis: spektrum rata + periodisitas rendah
+    // Noise/desis: spektrum rata + periodisitas rendah.
+    // Plus: kalau bentuk spektrumnya nyaris sama persis dengan profil ruangan,
+    // ya itu memang ruangannya — sekeras apa pun, bukan biola.
     if (flatness > th.flatnessMax || clarity < th.clarity) {
       updateFloor(false);
       this.history.length = 0;
-      return { ...base, rawFreq: pitch, clarity, flatness, reason: "noise" };
+      // Frame ini jelas bukan nada → aman dipakai nyegerin profil ruangan.
+      // Cuma frame kayak gini yang boleh ngajarin profil: kalau nada ikut
+      // kepelajari, profilnya bakal "ngenal" biola dan malah ngebuang biola.
+      this.learnNoise(0.02);
+      return {
+        ...base,
+        rawFreq: pitch,
+        clarity,
+        flatness,
+        noiseMatch: this.noiseMatch,
+        reason: "noise",
+      };
     }
 
     const prof = this.harmonicProfile(pitch);
@@ -410,6 +489,7 @@ export class ViolinDetector {
       harmonic,
       timbre: prof.timbre,
       harmonicCount: prof.count,
+      noiseMatch: this.noiseMatch,
       level,
       noiseFloor: this.noiseFloor,
       calibrating: false,
