@@ -8,6 +8,8 @@ import { playTone } from "@/lib/tone";
 import { updateProgress } from "@/lib/progress";
 import { SONGS, fingerHint } from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
+import SessionEval from "@/components/SessionEval";
+import { useSessionEval } from "@/lib/sessionEval";
 
 // Mode Lagu: ikutin deretan nada pakai biola beneran.
 // Mekanik ala karaoke/Yousician: nada BENER + ditahan = maju.
@@ -33,6 +35,13 @@ export default function LaguPage() {
     start,
     stop,
   } = usePitch({ sensitivity });
+  const { report, clear } = useSessionEval({
+    active,
+    freq,
+    volumeDb,
+    peak,
+    reason,
+  });
   const [songIdx, setSongIdx] = useState(0);
   const [noteIdx, setNoteIdx] = useState(0);
   const [misses, setMisses] = useState(0);
@@ -401,6 +410,8 @@ export default function LaguPage() {
           )}
         </div>
       </div>
+
+      <SessionEval report={report} onClose={clear} />
 
       <div className="rounded-xl border border-border-soft bg-surface p-4 text-sm text-muted">
         💡 Tombol &quot;dengar lagunya&quot; dan &quot;nada target&quot; sengaja

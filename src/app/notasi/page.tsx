@@ -7,6 +7,8 @@ import { playTone } from "@/lib/tone";
 import { useSensitivity } from "@/lib/micSettings";
 import { fingerHint } from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
+import SessionEval from "@/components/SessionEval";
+import { useSessionEval } from "@/lib/sessionEval";
 
 // Baca not balok — sight-reading.
 //
@@ -91,6 +93,13 @@ export default function NotasiPage() {
     stop,
   } = usePitch({ sensitivity, stableMs: 140 });
 
+  const { report, clear } = useSessionEval({
+    active,
+    freq,
+    volumeDb,
+    peak,
+    reason,
+  });
   const [levelIdx, setLevelIdx] = useState(0);
   const [queue, setQueue] = useState<number[]>([]);
   const [correct, setCorrect] = useState(0);
@@ -316,6 +325,8 @@ export default function NotasiPage() {
           </button>
         </div>
       </div>
+
+      <SessionEval report={report} onClose={clear} />
 
       <div className="grid grid-cols-3 gap-3">
         <Stat label="Benar" value={`${correct} / ${attempts}`} />

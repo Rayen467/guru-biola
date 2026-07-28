@@ -44,6 +44,43 @@ function violin(f0, amp = 0.15, { vibrato = 0.004, noise = 0.002 } = {}) {
   return out;
 }
 
+// Biola ASLI lewat mic murahan tidak sebersih model di atas. Tiga hal yang
+// bikin deteksi gagal padahal suaranya jelas di kuping:
+//   1. mic laptop/HP motong bawah → fundamental G3 (196 Hz) nyaris hilang
+//   2. "bridge hill" biola numpuk energi di 2-4 kHz → partial atas malah dominan
+//   3. suara dari speaker HP dipotong di bawah ~400 Hz
+// Ketiganya bikin "porsi energi di partial 1-2" jadi kecil — padahal ini
+// jelas-jelas biola.
+function violinShaped(f0, amp, partials, { vibrato = 0.004, noise = 0.003 } = {}) {
+  const g = rnd(53);
+  const out = new Float32Array(N);
+  let phase = 0;
+  for (let i = 0; i < N; i++) {
+    const t = i / SR;
+    const f = f0 * (1 + vibrato * Math.sin(2 * Math.PI * 5 * t));
+    phase += (2 * Math.PI * f) / SR;
+    let v = 0;
+    for (let k = 0; k < partials.length; k++) {
+      if (f * (k + 1) > SR / 2) break;
+      v += partials[k] * Math.sin(phase * (k + 1));
+    }
+    out[i] = amp * v * 0.35 + noise * g();
+  }
+  return out;
+}
+
+// Mic laptop: fundamental tinggal seperempat, partial 2-3 jadi yang terkuat.
+const violinWeakFundamental = (f0, amp = 0.14) =>
+  violinShaped(f0, amp, [0.22, 1, 0.85, 0.6, 0.45, 0.3, 0.2, 0.12]);
+
+// Senar E / gesekan dekat jembatan: energi numpuk di partial atas.
+const violinBright = (f0, amp = 0.12) =>
+  violinShaped(f0, amp, [0.3, 0.55, 1, 0.9, 0.7, 0.5, 0.35, 0.2]);
+
+// Rekaman biola diputar dari speaker HP: di bawah ~400 Hz habis dipotong.
+const violinFromPhone = (f0, amp = 0.12) =>
+  violinShaped(f0, amp, f0 < 400 ? [0.05, 0.35, 1, 0.8, 0.6, 0.4, 0.25, 0.15] : [0.6, 1, 0.8, 0.5, 0.3, 0.2, 0.1, 0.05]);
+
 function whiteNoise(amp = 0.05) {
   const g = rnd(11);
   const out = new Float32Array(N);
@@ -283,6 +320,22 @@ results.push(
   run("Biola + orang ngomong", mix(violin(587.33, 0.16), speech(0.04)), {
     expect: "detect",
     f0: 587.33,
+  })
+);
+
+// Kondisi nyata: mic laptop, senar E, dan rekaman dari speaker HP.
+results.push(run("Mic laptop — G3 fundamental lemah", violinWeakFundamental(196), { expect: "detect", f0: 196 }));
+results.push(run("Mic laptop — D4 fundamental lemah", violinWeakFundamental(293.66), { expect: "detect", f0: 293.66 }));
+results.push(run("Mic laptop — A4 fundamental lemah", violinWeakFundamental(440), { expect: "detect", f0: 440 }));
+results.push(run("Senar E cerah (partial atas kuat)", violinBright(659.26), { expect: "detect", f0: 659.26 }));
+results.push(run("Senar A cerah", violinBright(440), { expect: "detect", f0: 440 }));
+results.push(run("Biola dari speaker HP — A4", violinFromPhone(440), { expect: "detect", f0: 440 }));
+results.push(run("Biola dari speaker HP — D4", violinFromPhone(293.66), { expect: "detect", f0: 293.66 }));
+results.push(run("Biola jauh dari mic (amp 0.012)", violin(440, 0.012), { expect: "detect", f0: 440 }));
+results.push(
+  run("Mic laptop pelan + noise ruangan", mix(violinWeakFundamental(196, 0.06), whiteNoise(0.004)), {
+    expect: "detect",
+    f0: 196,
   })
 );
 

@@ -33,3 +33,127 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/* ---------- Gerak ----------
+   Semua gerakan di sini fungsinya ngasih tahu sesuatu: nada kena, mic lagi
+   dengerin, angka lagi jalan. Gak ada yang cuma buat rame — halaman ini
+   dipakai sambil megang biola, gerakan yang gak perlu malah ganggu.
+   Semua otomatis mati kalau sistemnya minta gerakan dikurangi. */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Denyut lingkaran keluar — dipakai pas nada kena, biar kelihatan dari
+   jarak baca yang jauh (biola nempel dagu, layar agak jauh). */
+@keyframes hit-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 26px rgba(74, 222, 128, 0);
+  }
+}
+
+@keyframes listen-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -160% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+
+@keyframes ring-fill {
+  from {
+    stroke-dashoffset: var(--ring-start, 264);
+  }
+  to {
+    stroke-dashoffset: var(--ring-target, 0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+
+.animate-pop {
+  animation: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-hit {
+  animation: hit-ring 0.6s ease-out;
+}
+
+.animate-ring {
+  animation: ring-fill 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Batang "lagi dengerin" — tiga garis naik-turun bergantian. */
+.listen-bar {
+  animation: listen-bar 0.9s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.listen-bar:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.listen-bar:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.listen-bar:nth-child(4) {
+  animation-delay: 0.45s;
+}
+
+/* Kilau tipis di batang progres yang lagi jalan. */
+.shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-pop,
+  .animate-hit,
+  .animate-ring,
+  .listen-bar,
+  .shimmer {
+    animation: none !important;
+  }
+}

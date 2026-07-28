@@ -6,6 +6,8 @@ import { useMetronome, type MetronomeSettings } from "@/lib/metronome";
 import { useSensitivity } from "@/lib/micSettings";
 import { updateProgress } from "@/lib/progress";
 import BowFeedback from "@/components/BowFeedback";
+import SessionEval from "@/components/SessionEval";
+import { useSessionEval } from "@/lib/sessionEval";
 
 // Latihan ritme: metronom jalan, lu gesek satu nada tiap ketukan, app ngukur
 // selisih waktunya dalam milidetik. Intonasi bagus tapi ritme goyang tetap
@@ -55,6 +57,13 @@ export default function RitmePage() {
     stop,
   } = usePitch({ sensitivity });
 
+  const { report, clear } = useSessionEval({
+    active,
+    freq,
+    volumeDb,
+    peak,
+    reason,
+  });
   const [hits, setHits] = useState<Hit[]>([]);
   const [last, setLast] = useState<Hit | null>(null);
   const [done, setDone] = useState(false);
@@ -353,6 +362,7 @@ export default function RitmePage() {
       {/* Hasil */}
       {count > 0 && (
         <div className="space-y-2 rounded-xl border border-border-soft bg-surface p-5">
+          <SessionEval report={report} onClose={clear} />
           <h2 className="text-sm font-semibold text-accent-strong">
             Hasil {done ? "sesi" : "sementara"}
           </h2>

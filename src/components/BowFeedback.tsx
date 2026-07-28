@@ -77,9 +77,13 @@ export default function BowFeedback({
     tone = "warn";
   }
 
+  // Tinggi batang ngikut volume sebenarnya (-60..-5 dB), jadi ini bukan
+  // animasi hiasan: kalau batangnya pendek terus, gesekan lu emang kekecilan.
+  const level = Math.max(0, Math.min(1, (volumeDb + 60) / 55));
+
   return (
     <div
-      className={`rounded-lg border p-2.5 text-left text-xs ${
+      className={`flex items-start gap-2.5 rounded-lg border p-2.5 text-left text-xs transition-colors ${
         tone === "good"
           ? "border-good/40 bg-good/10 text-good"
           : tone === "warn"
@@ -87,10 +91,27 @@ export default function BowFeedback({
             : "border-border-soft bg-surface-2 text-muted"
       }`}
     >
-      <span className="font-semibold">
-        {emoji} {title}
+      <span
+        className="flex h-6 shrink-0 items-end gap-0.5"
+        aria-hidden
+        title={`Volume masuk: ${Math.round(volumeDb)} dB`}
+      >
+        {[0, 1, 2, 3].map((i) => (
+          <span
+            key={i}
+            className={`listen-bar w-1 rounded-sm ${
+              tone === "good" ? "bg-good" : tone === "warn" ? "bg-accent" : "bg-muted"
+            }`}
+            style={{ height: `${20 + level * 80}%` }}
+          />
+        ))}
       </span>
-      {tip && <span className="text-muted"> — {tip}</span>}
+      <span className="flex-1">
+        <span className="font-semibold">
+          {emoji} {title}
+        </span>
+        {tip && <span className="text-muted"> — {tip}</span>}
+      </span>
     </div>
   );
 }

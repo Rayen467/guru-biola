@@ -16,6 +16,8 @@ import {
 } from "@/lib/notes";
 import { playTone } from "@/lib/tone";
 import BowFeedback from "@/components/BowFeedback";
+import SessionEval from "@/components/SessionEval";
+import { useSessionEval } from "@/lib/sessionEval";
 import {
   DEFAULT_SENSITIVITY,
   sensitivityLabel,
@@ -51,6 +53,14 @@ export default function TunerPage() {
     stop,
   } = usePitch({ sensitivity });
   const a4 = useA4();
+  // evaluasi otomatis: dikumpulin selama mic nyala, keluar begitu distop
+  const { report, clear } = useSessionEval({
+    active,
+    freq,
+    volumeDb,
+    peak,
+    reason,
+  });
   const [reading, setReading] = useState<Reading | null>(null);
   const hist = useRef<number[]>([]);
   const lastValidAt = useRef(0);
@@ -174,7 +184,9 @@ export default function TunerPage() {
               </>
             ) : inTune ? (
               <>
-                <div className="text-5xl font-bold text-good">✓ PAS!</div>
+                <div className="animate-pop inline-block rounded-full px-4 text-5xl font-bold text-good animate-hit">
+                  ✓ PAS!
+                </div>
                 <div className="mt-1 text-sm text-muted">
                   Senar {str.name} beres ({cents >= 0 ? "+" : ""}
                   {cents} cent). Lanjut senar berikutnya.
@@ -272,6 +284,8 @@ export default function TunerPage() {
           {active ? "■ Stop mic" : "🎤 Nyalain mic"}
         </button>
       </div>
+
+      <SessionEval report={report} onClose={clear} />
 
       {/* Sensitivitas mic — kepakai di semua halaman yang dengerin biola */}
       <div className="rounded-xl border border-border-soft bg-surface p-4">

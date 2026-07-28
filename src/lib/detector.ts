@@ -60,7 +60,11 @@ const BAND_LO = 150; // Hz — batas bawah analisis spektrum
 const BAND_HI = 5000; // Hz
 const ABS_FLOOR = 0.0025; // RMS minimum absolut
 const CALIBRATE_MS = 700;
-const STABLE_CENTS = 55; // toleransi goyang nada — vibrato lebar (±50) masih lolos
+// Di bawah frekuensi ini masih wilayah suara manusia — di situ saja penjaga
+// bentuk-lereng dipakai. Di atasnya (senar A ke atas) tidak, karena orang tidak
+// menahan vokal selama itu di wilayah tersebut dan biola justru banyak main di sana.
+const VOICE_ZONE_HZ = 330;
+const STABLE_CENTS = 65; // toleransi goyang nada — vibrato lebar masih lolos
 const HISTORY_MS = 1200;
 // Sekali nada beneran ke-lock, ambangnya dilonggarin sebentar. Tanpa ini,
 // gesekan yang sesaat kotor bikin jarum kedip-kedip padahal nadanya masih jalan.
@@ -76,7 +80,7 @@ function thresholds(sensitivity: number) {
     // lama bikin patokan latarnya naik sendiri sampai nadanya ikut ke-gate.
     // Penolakan noise diurus uji spektrum yang gak peduli keras-pelan.
     gate: ABS_FLOOR * (2 - s * 1.4), // 2x → 0.6x dari ambang absolut
-    clarity: 0.95 - s * 0.09, // 0.95 → 0.86
+    clarity: 0.93 - s * 0.08, // 0.93 → 0.85
     // Flatness dipakai sebagai saringan KASAR aja. Di ruangan ber-AC, noise
     // lebar bikin flatness naik walau nada biolanya jelas — yang menentukan
     // tetap skor harmonik.
@@ -85,10 +89,13 @@ function thresholds(sensitivity: number) {
     // Deret harmonik harus BENERAN kelihatan, bukan cuma satu puncak. Kipas
     // bernada dan siulan cuma punya 1-2 partial; dawai punya banyak.
     minHarmonics: s < 0.35 ? 4 : 3,
-    // Penjaga anti-suara-orang: vokal manusia ditarik formant, jadi partial
-    // yang paling kuat sering partial ke-3 sampai ke-6. Dawai digesek hampir
-    // selalu paling kuat di partial 1 atau 2.
-    timbreMin: 0.34 - s * 0.14, // 0.34 → 0.20
+    // Penjaga anti-suara-orang, dipakai cuma di wilayah suara manusia.
+    // Benjolan = partial yang melonjak lagi setelah lerengnya turun (ciri
+    // formant). Dawai lerengnya turun rapi.
+    maxBumps: s < 0.75 ? 0 : 1,
+    // Puncak partial biola jarang lebih tinggi dari partial ke-4; vokal
+    // rendah sering puncaknya di partial 5-8 karena formant pertama.
+    maxPeakPartial: s < 0.5 ? 4 : 5,
   };
 }
 
@@ -263,13 +270,16 @@ export class ViolinDetector {
     score: number;
     timbre: number;
     count: number;
+    peakPartial: number; // partial ke berapa yang paling kuat (1-based)
+    bumps: number; // berapa kali lereng naik lagi setelah puncak
   } {
     const binHz = this.sampleRate / (this.mag.length * 2);
     const lo = Math.max(1, Math.floor(BAND_LO / binHz));
     const hi = Math.min(this.mag.length - 1, Math.ceil(BAND_HI / binHz));
     let total = 0;
     for (let i = lo; i <= hi; i++) total += this.denoised[i] * this.denoised[i];
-    if (total <= 0) return { score: 0, timbre: 0, count: 0 };
+    if (total <= 0)
+      return { score: 0, timbre: 0, count: 0, peakPartial: 0, bumps: 0 };
 
     // Lantai spektrum = median energi bin. Partial dianggap "nongol" kalau
     // energinya jauh di atas lantai ini — bukan sekadar ada angkanya.
@@ -298,7 +308,28 @@ export class ViolinDetector {
     const count = partials.filter((p) => p > floor * 12).length;
     // Porsi energi harmonik yang duduk di dua partial terbawah.
     const lowShare = harm > 0 ? (partials[0] + (partials[1] ?? 0)) / harm : 0;
-    return { score: Math.min(1, harm / total), timbre: lowShare, count };
+
+    // Bentuk lereng partial. Dawai digesek: naik ke satu puncak, habis itu
+    // turun terus. Suara orang: formant bikin BENJOLAN — partial dekat formant
+    // melonjak lagi padahal yang sebelumnya udah turun. Benjolan inilah
+    // pembedanya, bukan "partial bawah harus paling kuat" — biola lewat mic
+    // laptop atau speaker HP sering kehilangan partial bawahnya.
+    let peakIdx = 0;
+    for (let i = 1; i < partials.length; i++) {
+      if (partials[i] > partials[peakIdx]) peakIdx = i;
+    }
+    let bumps = 0;
+    for (let k = peakIdx; k < partials.length - 1; k++) {
+      if (partials[k + 1] > partials[k] * 1.6) bumps++;
+    }
+
+    return {
+      score: Math.min(1, harm / total),
+      timbre: lowShare,
+      count,
+      peakPartial: peakIdx + 1,
+      bumps,
+    };
   }
 
   // Kestabilan diukur terhadap MEDIAN jendela, bukan bacaan terakhir: vibrato
@@ -434,10 +465,13 @@ export class ViolinDetector {
       };
     }
 
-    // Uji timbre dawai. Ini yang bunuh suara orang: vokal manusia punya
-    // formant, jadi puncak energinya pindah ke partial atas. Dawai digesek
-    // tetap paling gede di partial 1-2.
-    if (prof.timbre < th.timbreMin * relax) {
+    // Uji bentuk lereng partial. Cuma dipakai di WILAYAH SUARA MANUSIA
+    // (f0 di bawah ~330 Hz). Di atas itu praktis gak ada orang yang nahan
+    // vokal selama ratusan milidetik, sementara senar A dan E justru banyak
+    // main di sana — jadi ngetes di situ cuma bikin biola ketolak.
+    const inVoiceZone = pitch < VOICE_ZONE_HZ;
+    const irregular = prof.bumps > th.maxBumps || prof.peakPartial > th.maxPeakPartial;
+    if (inVoiceZone && irregular && !locked) {
       updateFloor(false);
       this.history.length = 0;
       return {

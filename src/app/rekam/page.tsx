@@ -5,6 +5,8 @@ import { usePitch } from "@/lib/usePitch";
 import { freqToNote, midiToName } from "@/lib/notes";
 import { useSensitivity } from "@/lib/micSettings";
 import BowFeedback from "@/components/BowFeedback";
+import SessionEval from "@/components/SessionEval";
+import { useSessionEval } from "@/lib/sessionEval";
 
 // Rekam & bedah latihan.
 //
@@ -41,6 +43,13 @@ export default function RekamPage() {
     getStream,
   } = usePitch({ sensitivity });
 
+  const { report, clear } = useSessionEval({
+    active,
+    freq,
+    volumeDb,
+    peak,
+    reason,
+  });
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [samples, setSamples] = useState<Sample[]>([]);
@@ -224,6 +233,8 @@ export default function RekamPage() {
           {recording ? "■ Stop rekam" : "⏺️ Mulai rekam"}
         </button>
       </div>
+
+      <SessionEval report={report} onClose={clear} />
 
       {/* Grafik intonasi */}
       {samples.length > 0 && (

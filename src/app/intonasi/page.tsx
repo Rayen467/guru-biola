@@ -15,6 +15,8 @@ import { playTone } from "@/lib/tone";
 import { updateProgress } from "@/lib/progress";
 import { fingerHint } from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
+import SessionEval from "@/components/SessionEval";
+import { useSessionEval } from "@/lib/sessionEval";
 
 // Set latihan: nama + deretan MIDI note.
 // `tonic` = nada dasar buat drone. `grade` = patokan silabus resmi kalau ada.
@@ -128,6 +130,13 @@ export default function IntonasiPage() {
   } = usePitch({ sensitivity });
   const drone = useDrone();
   const a4 = useA4();
+  const { report, clear } = useSessionEval({
+    active,
+    freq,
+    volumeDb,
+    peak,
+    reason,
+  });
   const [setIdx, setSetIdx] = useState(0);
   const [noteIdx, setNoteIdx] = useState(0);
   const [hits, setHits] = useState(0);
@@ -384,7 +393,9 @@ export default function IntonasiPage() {
               {active ? "Dengerin… mainkan nadanya." : "Mic belum nyala."}
             </div>
           ) : onTarget ? (
-            <div className="text-2xl font-bold text-good">TAHAN… 🟢</div>
+            <div className="animate-pop text-2xl font-bold text-good">
+              TAHAN… 🟢
+            </div>
           ) : Math.abs(cents) > FAR_CENTS ? (
             <div className="text-sm text-bad">
               Jauh banget ({cents > 0 ? "+" : ""}
@@ -465,6 +476,8 @@ export default function IntonasiPage() {
           dari {attempts} percobaan
         </div>
       </div>
+
+      <SessionEval report={report} onClose={clear} />
 
       <div className="space-y-2 rounded-xl border border-border-soft bg-surface p-4 text-xs text-muted">
         <p>
