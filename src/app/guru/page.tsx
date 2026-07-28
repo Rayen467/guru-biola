@@ -5,15 +5,9 @@ import { CURRICULUM } from "@/lib/curriculum";
 import { loadProgress } from "@/lib/progress";
 import { matchPerpustakaan } from "@/lib/perpustakaan";
 import { SYSTEM_PROMPT } from "@/lib/guruPrompt";
-import {
-  AI_PRESETS,
-  askDirect,
-  clearAiSettings,
-  hasAiKey,
-  setAiSettings,
-  useAiSettings,
-  type AiSettings,
-} from "@/lib/aiSettings";
+import { askDirect, askProxy, useAiMeta } from "@/lib/aiSettings";
+import { hasVault } from "@/lib/secureKey";
+import AiSetup from "@/components/AiSetup";
 
 interface Msg {
   role: "user" | "assistant";
@@ -28,134 +22,6 @@ const STARTERS = [
   "Gua harus latihan apa hari ini?",
   "Cara pegang bow yang bener gimana?",
 ];
-
-// Panel setelan AI buat versi online. Sengaja ngomong apa adanya soal risiko:
-// key yang disimpan di browser bisa dibaca siapa pun yang pegang perangkat itu.
-function AiSetup({ ai, onClose }: { ai: AiSettings; onClose: () => void }) {
-  const [draft, setDraft] = useState<AiSettings>(ai);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => setDraft(ai), [ai]);
-
-  const preset = AI_PRESETS.find((p) => p.baseUrl === draft.baseUrl);
-
-  return (
-    <div className="animate-fade-up mb-4 space-y-3 rounded-xl border border-accent/40 bg-surface p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-accent-strong">
-            Setelan Guru AI (buat versi online)
-          </h2>
-          <p className="mt-1 text-xs text-muted">
-            Di komputer sendiri, key dibaca dari file <code>.env.local</code> —
-            gak perlu ngisi apa-apa di sini. Panel ini buat versi online (HP),
-            yang gak punya server.
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="press rounded-full px-2 py-1 text-xs text-muted hover:text-foreground"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {AI_PRESETS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() =>
-              setDraft((d) => ({ ...d, baseUrl: p.baseUrl, model: p.model }))
-            }
-            className={`press rounded-full px-3 py-1.5 text-xs ${
-              preset?.id === p.id
-                ? "bg-accent font-semibold text-background"
-                : "bg-surface-2 text-muted hover:text-foreground"
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      <label className="block">
-        <span className="text-xs text-muted">Alamat API</span>
-        <input
-          value={draft.baseUrl}
-          onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
-          placeholder="https://apihub.agnes-ai.com/v1"
-          className="mt-1 w-full rounded-lg bg-surface-2 px-3 py-2 text-sm"
-        />
-      </label>
-
-      <label className="block">
-        <span className="text-xs text-muted">API key</span>
-        <input
-          type="password"
-          value={draft.apiKey}
-          onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
-          placeholder="tempel key lu di sini"
-          autoComplete="off"
-          className="mt-1 w-full rounded-lg bg-surface-2 px-3 py-2 text-sm"
-        />
-      </label>
-
-      <label className="block">
-        <span className="text-xs text-muted">Model</span>
-        <input
-          value={draft.model}
-          onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-          placeholder="agnes-2.0-flash"
-          className="mt-1 w-full rounded-lg bg-surface-2 px-3 py-2 text-sm"
-        />
-      </label>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => {
-            setAiSettings(draft);
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
-          }}
-          className="press rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-background hover:bg-accent-strong"
-        >
-          Simpan di perangkat ini
-        </button>
-        {hasAiKey(ai) && (
-          <button
-            onClick={() => {
-              clearAiSettings();
-              setDraft({ baseUrl: "", apiKey: "", model: "" });
-            }}
-            className="press rounded-full bg-surface-2 px-4 py-1.5 text-xs text-muted hover:text-foreground"
-          >
-            Hapus key dari perangkat ini
-          </button>
-        )}
-        {preset && (
-          <a
-            href={preset.keysUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-accent-strong underline"
-          >
-            ambil key {preset.label} ↗
-          </a>
-        )}
-        {saved && <span className="text-xs text-good">tersimpan ✓</span>}
-      </div>
-
-      <p className="rounded-lg bg-surface-2 p-3 text-[11px] text-muted">
-        ⚠️ <b className="text-foreground">Jujur soal risikonya:</b> key yang
-        disimpan di sini nyimpen di browser perangkat ini (localStorage), dan
-        dikirim langsung dari browser lu ke penyedia AI — gak lewat server mana
-        pun, gak dikirim ke gua. Tapi artinya siapa pun yang bisa buka browser
-        ini bisa baca key-nya. Jangan dipakai di HP/komputer pinjaman, dan pakai
-        key yang gampang lu cabut kalau bocor.
-      </p>
-    </div>
-  );
-}
 
 function buildProgressSummary(): string {
   const p = loadProgress();
@@ -183,8 +49,11 @@ export default function GuruPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const ai = useAiSettings();
+  const ai = useAiMeta();
   const [showSetup, setShowSetup] = useState(false);
+  // Key hasil buka brankas HANYA hidup di sini — tidak pernah ditulis balik ke
+  // penyimpanan, jadi hilang begitu halaman ditutup. Itu memang tujuannya.
+  const [sessionKey, setSessionKey] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -226,15 +95,23 @@ export default function GuruPage() {
         !!res.headers.get("content-type")?.includes("application/json");
 
       if (!serverAda) {
-        if (!hasAiKey(ai)) {
-          setShowSetup(true);
-          setError(
-            "Versi online ini gak punya server, jadi Guru AI perlu API key punya lu sendiri — isi di panel setelan di bawah. Sementara itu, pertanyaan umum tetap dijawab perpustakaan lokal."
-          );
+        // Urutan: proxy dulu (paling aman), baru key terenkripsi yang udah dibuka.
+        if (ai.proxyUrl) {
+          const reply = await askProxy(ai.proxyUrl, SYSTEM_PROMPT, next, summary);
+          setMessages([...next, { role: "assistant", content: reply, source: "llm" }]);
           return;
         }
-        const reply = await askDirect(ai, SYSTEM_PROMPT, next, summary);
-        setMessages([...next, { role: "assistant", content: reply, source: "llm" }]);
+        if (sessionKey) {
+          const reply = await askDirect(ai, sessionKey, SYSTEM_PROMPT, next, summary);
+          setMessages([...next, { role: "assistant", content: reply, source: "llm" }]);
+          return;
+        }
+        setShowSetup(true);
+        setError(
+          hasVault()
+            ? "Key-nya kekunci. Masukin kata sandi di panel setelan buat buka — berlaku sampai halaman ini ditutup."
+            : "Versi online gak punya server, jadi Guru AI butuh setelan sendiri: pakai proxy (paling aman) atau simpan key terenkripsi. Sementara itu, pertanyaan umum tetap dijawab perpustakaan lokal."
+        );
         return;
       }
       const data = await res!.json();
@@ -265,11 +142,24 @@ export default function GuruPage() {
           onClick={() => setShowSetup((v) => !v)}
           className="press mt-2 rounded-full bg-surface-2 px-3 py-1 text-xs text-muted hover:text-foreground"
         >
-          ⚙️ Setelan AI {hasAiKey(ai) ? "· key tersimpan ✓" : "· belum diisi"}
+          ⚙️ Setelan AI{" "}
+          {ai.proxyUrl
+            ? "· lewat proxy 🛡️"
+            : sessionKey
+              ? "· kebuka 🔓"
+              : hasVault()
+                ? "· terkunci 🔐"
+                : "· belum diatur"}
         </button>
       </header>
 
-      {showSetup && <AiSetup ai={ai} onClose={() => setShowSetup(false)} />}
+      {showSetup && (
+        <AiSetup
+          onClose={() => setShowSetup(false)}
+          onUnlocked={setSessionKey}
+          unlocked={!!sessionKey}
+        />
+      )}
 
       <div className="flex-1 space-y-3 overflow-y-auto rounded-xl border border-border-soft bg-surface p-4">
         {messages.length === 0 && (

@@ -1,28 +1,34 @@
 "use client";
 
-// Setelan Guru AI untuk versi ONLINE (statis).
+// Setelan Guru AI untuk versi online (statis).
 //
-// Kenapa ada dua jalur:
-//   - Di komputer sendiri (`npm run dev`) ada server kecil, jadi key disimpan
-//     di .env.local dan tidak pernah sampai ke browser. Itu yang paling aman.
-//   - Di GitHub Pages tidak ada server sama sekali. Satu-satunya cara Guru AI
-//     hidup di HP adalah browser memanggil penyedia AI langsung, pakai key
-//     yang DIMASUKKAN SENDIRI oleh pemiliknya dan disimpan di perangkat itu.
+// Tiga jalur, diurutkan dari yang paling aman:
 //
-// Konsekuensinya harus dibilang apa adanya ke pengguna: key yang disimpan di
-// browser bisa dibaca siapa pun yang memegang perangkat itu atau membuka
-// devtools-nya. Makanya key ini TIDAK PERNAH ikut dibundel ke dalam kode —
-// kalau ikut, semua pengunjung situs dapat key yang sama.
+//   1. SERVER SENDIRI — app dijalankan di komputer sendiri (`npm run dev`).
+//      Key ada di .env.local, tidak pernah menyentuh browser. Tidak butuh
+//      setelan apa pun di halaman ini.
+//
+//   2. PROXY — alamat penerus milik sendiri (mis. Cloudflare Worker gratis,
+//      lihat proxy/cloudflare-worker.js di repo). Key disimpan di proxy, jadi
+//      di browser TIDAK ADA key sama sekali — cuma alamat. Ini yang dipakai
+//      kalau mau Guru AI hidup di HP tanpa menaruh rahasia di HP.
+//
+//   3. KEY TERENKRIPSI — key disimpan di perangkat dalam bentuk terenkripsi
+//      dan baru bisa dipakai setelah kata sandinya dimasukkan. Lihat
+//      lib/secureKey.ts untuk cara dan batas perlindungannya.
+//
+// Yang sengaja DIHAPUS: menyimpan key apa adanya di localStorage. Itu bisa
+// dibaca siapa pun yang memegang perangkatnya.
 
 import { useEffect, useState } from "react";
 
-export interface AiSettings {
+export interface AiMeta {
   baseUrl: string;
-  apiKey: string;
   model: string;
+  proxyUrl: string;
 }
 
-const KEY = "guru-biola-ai";
+const META_KEY = "guru-biola-ai-meta";
 const EVENT = "guru-biola-ai-change";
 
 export const AI_PRESETS = [
@@ -49,82 +55,112 @@ export const AI_PRESETS = [
   },
 ] as const;
 
-const EMPTY: AiSettings = { baseUrl: "", apiKey: "", model: "" };
+const EMPTY: AiMeta = { baseUrl: "", model: "", proxyUrl: "" };
 
-export function getAiSettings(): AiSettings {
+export function getAiMeta(): AiMeta {
   if (typeof window === "undefined") return EMPTY;
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(META_KEY);
     return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY;
   } catch {
     return EMPTY;
   }
 }
 
-export function setAiSettings(s: AiSettings) {
-  localStorage.setItem(KEY, JSON.stringify(s));
+export function setAiMeta(m: AiMeta) {
+  localStorage.setItem(META_KEY, JSON.stringify(m));
   window.dispatchEvent(new Event(EVENT));
 }
 
-export function clearAiSettings() {
-  localStorage.removeItem(KEY);
-  window.dispatchEvent(new Event(EVENT));
-}
-
-export function useAiSettings(): AiSettings {
-  const [s, setS] = useState<AiSettings>(EMPTY);
+export function useAiMeta(): AiMeta {
+  const [m, setM] = useState<AiMeta>(EMPTY);
   useEffect(() => {
-    setS(getAiSettings());
-    const on = () => setS(getAiSettings());
+    setM(getAiMeta());
+    const on = () => setM(getAiMeta());
     window.addEventListener(EVENT, on);
     return () => window.removeEventListener(EVENT, on);
   }, []);
-  return s;
+  return m;
 }
 
-export function hasAiKey(s: AiSettings): boolean {
-  return !!(s.apiKey && s.baseUrl && s.model);
+export function notifyAiChange() {
+  window.dispatchEvent(new Event(EVENT));
 }
 
-// Panggil penyedia AI langsung dari browser. Dipakai HANYA kalau rute server
-// tidak ada (versi statis) dan pengguna sudah mengisi key-nya sendiri.
-export async function askDirect(
-  s: AiSettings,
+interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+}
+
+function buildBody(
+  model: string,
   systemPrompt: string,
-  messages: { role: "user" | "assistant"; content: string }[],
+  messages: ChatMsg[],
+  progressSummary?: string
+) {
+  return {
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...(progressSummary
+        ? [{ role: "system", content: `Progress murid saat ini: ${progressSummary}` }]
+        : []),
+      ...messages.slice(-20),
+    ],
+    temperature: 0.7,
+    max_tokens: 1024,
+  };
+}
+
+function readReply(data: unknown): string {
+  const d = data as { choices?: { message?: { content?: string } }[] };
+  return d.choices?.[0]?.message?.content ?? "(jawaban kosong)";
+}
+
+async function fail(res: Response): Promise<never> {
+  const detail = await res.text();
+  throw new Error(
+    res.status === 401 || res.status === 403
+      ? "Key ditolak penyedia. Cek key-nya, atau bikin key baru."
+      : `Penyedia menolak (${res.status}): ${detail.slice(0, 200)}`
+  );
+}
+
+// Jalur 2: lewat proxy sendiri. Browser tidak pernah memegang key.
+export async function askProxy(
+  proxyUrl: string,
+  systemPrompt: string,
+  messages: ChatMsg[],
   progressSummary?: string
 ): Promise<string> {
-  const res = await fetch(`${s.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+  const res = await fetch(proxyUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, progressSummary, systemPrompt }),
+  });
+  if (!res.ok) await fail(res);
+  const data = await res.json();
+  // Proxy boleh membalas {reply} atau format OpenAI apa adanya.
+  return (data as { reply?: string }).reply ?? readReply(data);
+}
+
+// Jalur 3: browser memanggil penyedia langsung. `apiKey` datang dari memori
+// hasil membuka brankas — jangan pernah menyimpannya kembali ke localStorage.
+export async function askDirect(
+  meta: AiMeta,
+  apiKey: string,
+  systemPrompt: string,
+  messages: ChatMsg[],
+  progressSummary?: string
+): Promise<string> {
+  const res = await fetch(`${meta.baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${s.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model: s.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...(progressSummary
-          ? [{ role: "system", content: `Progress murid saat ini: ${progressSummary}` }]
-          : []),
-        ...messages.slice(-20),
-      ],
-      temperature: 0.7,
-      max_tokens: 1024,
-    }),
+    body: JSON.stringify(buildBody(meta.model, systemPrompt, messages, progressSummary)),
   });
-
-  if (!res.ok) {
-    const detail = await res.text();
-    // Pesan penyedia dipotong: cukup buat tahu salahnya apa, tanpa muntahin
-    // seluruh respons ke layar.
-    throw new Error(
-      res.status === 401
-        ? "Key ditolak penyedia. Cek lagi key-nya, atau bikin key baru."
-        : `Penyedia menolak (${res.status}): ${detail.slice(0, 200)}`
-    );
-  }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "(jawaban kosong)";
+  if (!res.ok) await fail(res);
+  return readReply(await res.json());
 }
