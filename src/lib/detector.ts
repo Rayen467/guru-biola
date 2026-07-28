@@ -23,6 +23,11 @@ export interface DetectorOptions {
   sensitivity?: number;
   // berapa lama nada harus bertahan sebelum diakui (ms)
   stableMs?: number;
+  // Mode petik (pizzicato). Nada petikan cuma bunyi sebentar dan langsung
+  // meredup, jadi syarat "harus bertahan" dilonggarin. Konsekuensinya
+  // penyaring suara orang ikut longgar — makanya ini pilihan sadar user,
+  // bukan otomatis.
+  pluck?: boolean;
 }
 
 export interface Detection {
@@ -71,9 +76,11 @@ const HISTORY_MS = 1200;
 const LOCK_HOLD_MS = 350;
 const LOCK_RELAX = 0.82;
 
-// Ambang yang ikut sensitivitas.
-function thresholds(sensitivity: number) {
-  const s = Math.min(1, Math.max(0, sensitivity));
+// Ambang yang ikut sensitivitas. `pluck` melonggarkan syarat yang memang
+// mustahil dipenuhi nada petikan (bunyinya pendek dan spektrumnya berubah
+// cepat sambil meredup).
+function thresholds(sensitivity: number, pluck = false) {
+  const s = Math.min(1, Math.max(0, sensitivity + (pluck ? 0.2 : 0)));
   return {
     // Ambang level ini SENGAJA absolut, bukan relatif ke suara latar. Gate
     // relatif kelihatan pintar tapi rusak di dunia nyata: nada yang ditahan
@@ -164,6 +171,7 @@ export class ViolinDetector {
     this.sampleRate = options.sampleRate;
     this.opts = {
       sampleRate: options.sampleRate,
+      pluck: options.pluck ?? false,
       sensitivity: options.sensitivity ?? 0.5,
       // 260 ms: nada yang digesek gampang nyampe segini, tapi musik dari
       // speaker/TV ganti nada tiap ~200 ms jadi kesaring. Halaman yang butuh
@@ -189,6 +197,10 @@ export class ViolinDetector {
 
   setSensitivity(v: number) {
     this.opts.sensitivity = v;
+  }
+
+  setPluck(v: boolean) {
+    this.opts.pluck = v;
   }
 
   reset() {
@@ -424,11 +436,15 @@ export class ViolinDetector {
   // bikin nada goyang naik-turun di sekitar pusat, dan kalau dibandingkan ke
   // bacaan terakhir, dua ujung ayunan bakal keliatan "gak stabil" padahal itu
   // justru ciri permainan yang bagus.
-  private stable(f: number, now: number): { ok: boolean; center: number } {
+  private stable(
+    f: number,
+    now: number,
+    stableMs = this.opts.stableMs
+  ): { ok: boolean; center: number } {
     this.history = this.history.filter((h) => now - h.t <= HISTORY_MS);
     this.history.push({ t: now, f });
-    const win = this.history.filter((h) => now - h.t <= this.opts.stableMs);
-    if (win.length < 3 || now - win[0].t < this.opts.stableMs * 0.7) {
+    const win = this.history.filter((h) => now - h.t <= stableMs);
+    if (win.length < 3 || now - win[0].t < stableMs * 0.7) {
       return { ok: false, center: f };
     }
     const sorted = [...win].map((h) => h.f).sort((a, b) => a - b);
@@ -444,7 +460,11 @@ export class ViolinDetector {
 
   process(buf: Float32Array, now: number): Detection {
     if (this.startedAt === null) this.startedAt = now;
-    const th = thresholds(this.opts.sensitivity);
+    const pluck = this.opts.pluck;
+    const th = thresholds(this.opts.sensitivity, pluck);
+    // Nada petikan cuma bertahan sepersekian detik sebelum meredup — nunggu
+    // 260 ms bikin petikan gak pernah keitung sama sekali.
+    const stableMs = pluck ? 110 : this.opts.stableMs;
 
     let sumSq = 0;
     for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
@@ -612,7 +632,7 @@ export class ViolinDetector {
 
     updateFloor(false);
 
-    const st = this.stable(cand, now);
+    const st = this.stable(cand, now, stableMs);
     if (!st.ok) {
       // ini kemungkinan besar nada beneran yang baru mulai, cuma belum cukup
       // lama buat dipastiin — riwayatnya JANGAN dihapus

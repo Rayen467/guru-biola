@@ -81,6 +81,28 @@ const violinBright = (f0, amp = 0.12) =>
 const violinFromPhone = (f0, amp = 0.12) =>
   violinShaped(f0, amp, f0 < 400 ? [0.05, 0.35, 1, 0.8, 0.6, 0.4, 0.25, 0.15] : [0.6, 1, 0.8, 0.5, 0.3, 0.2, 0.1, 0.05]);
 
+// Petikan (pizzicato): serangan tajam, partial atas ramai di awal, lalu
+// meredup cepat. Diulang tiap 1,2 detik seperti orang nyetem sambil metik.
+function pizzicato(f0, amp = 0.25) {
+  const g = rnd(61);
+  const out = new Float32Array(N);
+  let phase = 0;
+  for (let i = 0; i < N; i++) {
+    const t = i / SR;
+    const sincePluck = t % 1.2;
+    const env = Math.exp(-sincePluck * 3.2);
+    phase += (2 * Math.PI * f0) / SR;
+    let v = 0;
+    // partial atas ikut meredup lebih cepat — ciri khas dawai dipetik
+    for (let k = 1; k <= 8; k++) {
+      const decay = Math.exp(-sincePluck * (2 + k * 0.9));
+      v += (decay / k) * Math.sin(phase * k);
+    }
+    out[i] = amp * env * v * 0.5 + 0.002 * g();
+  }
+  return out;
+}
+
 function whiteNoise(amp = 0.05) {
   const g = rnd(11);
   const out = new Float32Array(N);
@@ -255,9 +277,13 @@ function micChain(sig) {
   return biquad(s, { type: "lowpass", freq: 5000 });
 }
 
-function run(name, rawSignal, { expect, f0 = null, sensitivity = 0.5, skipMs = 1200 }) {
+function run(
+  name,
+  rawSignal,
+  { expect, f0 = null, sensitivity = 0.5, skipMs = 1200, pluck = false, minPct = 90 }
+) {
   const signal = micChain(rawSignal);
-  const det = new ViolinDetector(SIZE, { sampleRate: SR, sensitivity });
+  const det = new ViolinDetector(SIZE, { sampleRate: SR, sensitivity, pluck });
   const buf = new Float32Array(SIZE);
   const frames = Math.floor(DURATION_MS / HOP_MS);
   let judged = 0;
@@ -291,10 +317,12 @@ function run(name, rawSignal, { expect, f0 = null, sensitivity = 0.5, skipMs = 1
     .slice(0, 3)
     .map(([k, v]) => `${k}:${v}`)
     .join(" ");
+  // Petikan cuma bunyi sepersekian dari waktu (sisanya senyap sambil meredup),
+  // jadi ambang lulusnya beda — yang dinilai: pas bunyi, kebaca gak.
   console.log(
-    `${pct >= 90 ? "✓" : "✗"} ${name.padEnd(32)} ${String(pct).padStart(3)}%  (${top})`
+    `${pct >= minPct ? "✓" : "✗"} ${name.padEnd(32)} ${String(pct).padStart(3)}%  (${top})`
   );
-  return pct;
+  return pct >= minPct ? 100 : pct;
 }
 
 const results = [];
@@ -338,6 +366,28 @@ results.push(
     f0: 196,
   })
 );
+
+// Nyetem sambil metik senar — cara cek cepat yang dipakai banyak orang.
+console.log("\n--- MODE PETIK (pizzicato) ---");
+results.push(
+  run("Petik senar A", pizzicato(440), { expect: "detect", f0: 440, pluck: true, minPct: 35 })
+);
+results.push(
+  run("Petik senar G", pizzicato(196), { expect: "detect", f0: 196, pluck: true, minPct: 35 })
+);
+results.push(
+  run("Petik senar E", pizzicato(659.26), { expect: "detect", f0: 659.26, pluck: true, minPct: 35 })
+);
+results.push(
+  run("Petik + noise ruangan", mix(pizzicato(293.66), whiteNoise(0.006)), {
+    expect: "detect",
+    f0: 293.66,
+    pluck: true,
+    minPct: 35,
+  })
+);
+// Mode gesek TIDAK boleh rusak gara-gara ada mode petik
+results.push(run("Gesek biasa (mode gesek)", violin(440), { expect: "detect", f0: 440 }));
 
 console.log("\n--- HARUS DITOLAK (bukan nada biola) ---");
 results.push(run("Senyap", new Float32Array(N), { expect: "reject" }));

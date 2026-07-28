@@ -44,6 +44,9 @@ export interface CheckResult {
   ok: boolean;
   value: string;
   fix: string;
+  // Seperti apa yang BENAR — ditampilkan terus, bukan cuma pas salah.
+  // Tanpa ini, user cuma tahu "merah" tapi gak tahu targetnya apa.
+  target: string;
   // false = titik badannya gak kelihatan kamera, jadi belum bisa dinilai
   measurable: boolean;
 }
@@ -181,8 +184,9 @@ export function assess(
     measurable: boolean,
     ok: boolean,
     value: string,
-    fix: string
-  ) => checks.push({ id, label, ok, value, fix, measurable });
+    fix: string,
+    target = ""
+  ) => checks.push({ id, label, ok, value, fix, target, measurable });
 
   // 1. Kuda-kuda kaki
   const anklesSeen = seen(P(LM.leftAnkle), 0.4) && seen(P(LM.rightAnkle), 0.4);
@@ -196,7 +200,8 @@ export function assess(
       `${ratio.toFixed(2)}× lebar bahu`,
       ratio < 0.7
         ? "Kaki kerapatan — badan gampang goyang. Buka selebar bahu, kaki kiri agak maju, berat dibagi rata."
-        : "Kaki kelebaran — jadi kaku dan susah muter badan. Kembaliin ke selebar bahu."
+        : "Kaki kelebaran — jadi kaku dan susah muter badan. Kembaliin ke selebar bahu.",
+      "Target: 0,7–1,5× lebar bahu (kira-kira selebar bahu, kaki kiri agak maju)"
     );
   } else {
     add("stance", "Kuda-kuda kaki", false, false, "kaki gak kelihatan", "Mundur dikit biar badan sampai kaki masuk frame.");
@@ -216,7 +221,8 @@ export function assess(
       `beda tinggi ${(tilt * 100).toFixed(0)}%`,
       bahuNaik
         ? "Bahu tangan bow naik. Ini sumber pegal dan bunyi tegang — turunin bahu, biarin lengan gantung dari sendi bahu."
-        : "Bahu penyangga biola naik. Jangan diangkat buat ngejepit biola; kalau perlu, tinggiin shoulder rest."
+        : "Bahu penyangga biola naik. Jangan diangkat buat ngejepit biola; kalau perlu, tinggiin shoulder rest.",
+      "Target: beda tinggi dua bahu di bawah 9% lebar bahu (praktisnya: sejajar)"
     );
   } else {
     add("shoulders", "Bahu rata", false, false, "bahu gak kelihatan", "Hadap kamera, jarak 2-3 meter.");
@@ -237,7 +243,8 @@ export function assess(
       true,
       lean < 0.18,
       `miring ${(lean * 100).toFixed(0)}%`,
-      "Badan condong ke satu sisi — biasanya karena berat numpu di satu kaki. Bagi berat rata, bayangin ada tali narik ubun-ubun ke atas."
+      "Badan condong ke satu sisi — biasanya karena berat numpu di satu kaki. Bagi berat rata, bayangin ada tali narik ubun-ubun ke atas.",
+      "Target: tengah bahu segaris sama tengah pinggang (miring < 18%)"
     );
   } else {
     add("torso", "Badan tegak", false, false, "pinggang gak kelihatan", "Mundur dikit dari kamera.");
@@ -253,7 +260,8 @@ export function assess(
       true,
       headTilt < 22,
       `miring ${headTilt.toFixed(0)}%`,
-      "Kepala terlalu nunduk/miring — itu tanda biola dijepit pakai leher. Biola disangga tulang selangka + dagu SANTAI. Kalau melorot terus, shoulder rest-nya yang kurang tinggi."
+      "Kepala terlalu nunduk/miring — itu tanda biola dijepit pakai leher. Biola disangga tulang selangka + dagu SANTAI. Kalau melorot terus, shoulder rest-nya yang kurang tinggi.",
+      "Target: miring < 22%. Miring dikit ke kiri itu normal dan memang perlu; yang salah kalau kepala menekan buat ngunci biola"
     );
   } else {
     add("head", "Kepala & dagu", false, false, "wajah gak kelihatan", "Hadap kamera.");
@@ -268,7 +276,8 @@ export function assess(
       true,
       drop < 0.55,
       `pergelangan ${drop > 0 ? "+" : ""}${(drop * 100).toFixed(0)}% di bawah bahu`,
-      "Scroll biolanya turun. Angkat lengan kiri sampai biola nyaris sejajar lantai — kalau nunduk, senar G susah dijangkau dan bow gampang lari ke fingerboard."
+      "Scroll biolanya turun. Angkat lengan kiri sampai biola nyaris sejajar lantai — kalau nunduk, senar G susah dijangkau dan bow gampang lari ke fingerboard.",
+      "Target: pergelangan kiri gak lebih dari 55% lebar bahu di bawah garis bahu — scroll setinggi hidung atau lebih"
     );
   } else {
     add("scroll", "Tinggi biola (scroll)", false, false, "lengan kiri gak kelihatan", "Pastikan lengan kiri masuk frame.");
@@ -285,7 +294,8 @@ export function assess(
       `${armAngle.toFixed(0)}°`,
       armAngle <= 65
         ? "Siku ketekuk terlalu rapat — bow jadi pendek dan bunyinya nyekik. Buka lengan, pakai bow sampai ujung."
-        : "Lengan terlalu lurus/terkunci. Sikunya harus ikut nekuk pas bow balik ke pangkal."
+        : "Lengan terlalu lurus/terkunci. Sikunya harus ikut nekuk pas bow balik ke pangkal.",
+      "Target: 65°–165°. Wajar berubah sepanjang gesekan — nekuk di pangkal bow, lurus di ujung"
     );
   } else {
     add("bowarm", "Sudut siku tangan bow", false, false, "lengan bow gak kelihatan", "Miringin badan dikit biar tangan bow kelihatan kamera.");
@@ -299,7 +309,8 @@ export function assess(
       true,
       bow.straightness > 0.62,
       `${Math.round(bow.straightness * 100)}%`,
-      "Jejak pergelangan lu melengkung — bow-nya 'nyapu', bukan lurus. Latihan depan cermin: bayangin bow jalan di rel, jarak ke jembatan tetap sama dari pangkal sampai ujung."
+      "Jejak pergelangan lu melengkung — bow-nya 'nyapu', bukan lurus. Latihan depan cermin: bayangin bow jalan di rel, jarak ke jembatan tetap sama dari pangkal sampai ujung.",
+      "Target: di atas 62%. Artinya pergelangan jalan di satu garis, bukan busur"
     );
   } else {
     add("bowline", "Bow lurus (sejajar jembatan)", false, false, "belum ada gesekan", "Gesek beberapa kali panjang-panjang.");
@@ -313,7 +324,8 @@ export function assess(
       true,
       bow.evenness > 0.55,
       `${Math.round(bow.evenness * 100)}%`,
-      "Kecepatan bow naik-turun — biasanya ngebut di tengah, ngerem di ujung. Hitung 4 ketuk per gesekan, jaga lajunya sama dari pangkal ke ujung."
+      "Kecepatan bow naik-turun — biasanya ngebut di tengah, ngerem di ujung. Hitung 4 ketuk per gesekan, jaga lajunya sama dari pangkal ke ujung.",
+      "Target: di atas 55%. Laju bow rata dari pangkal sampai ujung"
     );
   } else {
     add("bowspeed", "Kecepatan bow rata", false, false, "belum ada gesekan", "Gesek dulu beberapa kali.");

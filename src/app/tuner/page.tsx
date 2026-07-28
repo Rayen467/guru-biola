@@ -38,6 +38,9 @@ interface Reading {
 
 export default function TunerPage() {
   const sensitivity = useSensitivity();
+  // Petik vs gesek: nada petikan cuma bunyi sebentar, jadi syarat "nada harus
+  // bertahan" beda. Dipilih user, bukan ditebak app.
+  const [pluck, setPluck] = useState(false);
   const {
     freq,
     clarity,
@@ -51,7 +54,7 @@ export default function TunerPage() {
     reason,
     start,
     stop,
-  } = usePitch({ sensitivity });
+  } = usePitch({ sensitivity, pluck });
   const a4 = useA4();
   // evaluasi otomatis: dikumpulin selama mic nyala, keluar begitu distop
   const { report, clear } = useSessionEval({
@@ -220,7 +223,9 @@ export default function TunerPage() {
             )
           ) : (
             <div className="pt-8 text-muted">
-              {active
+              {active && pluck
+                ? "Dengerin… petik satu senar, agak kuat."
+                : active
                 ? "Dengerin… gesek satu senar, panjang dan stabil."
                 : "Mic belum nyala."}
             </div>
@@ -283,6 +288,32 @@ export default function TunerPage() {
         >
           {active ? "■ Stop mic" : "🎤 Nyalain mic"}
         </button>
+
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <span className="text-xs text-muted">Cara nyetem:</span>
+          {[
+            { v: false, label: "🎻 Gesek", hint: "paling akurat" },
+            { v: true, label: "🤏 Petik", hint: "cek cepat" },
+          ].map((m) => (
+            <button
+              key={String(m.v)}
+              onClick={() => setPluck(m.v)}
+              className={`rounded-full px-4 py-1.5 text-xs transition-colors ${
+                pluck === m.v
+                  ? "bg-accent font-semibold text-background"
+                  : "bg-surface-2 text-muted hover:text-foreground"
+              }`}
+            >
+              {m.label}{" "}
+              <span className="opacity-70">· {m.hint}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mx-auto mt-2 max-w-md text-[11px] text-muted">
+          {pluck
+            ? "Mode petik: app nerima nada pendek. Baca angkanya SEGERA setelah metik — nada petikan turun sedikit sambil meredup, jadi bacaan di ekor bunyinya lebih rendah dari aslinya."
+            : "Gesekan bikin nada bertahan stabil, jadi jarumnya gak nebak. Ini cara stem yang dipakai pemain — petik cuma buat cek cepat."}
+        </p>
       </div>
 
       <SessionEval report={report} onClose={clear} />

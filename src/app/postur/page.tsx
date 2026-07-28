@@ -179,6 +179,42 @@ export default function PosturPage() {
         </div>
       )}
 
+      {/* Panduan siap-siap — tanpa ini hasilnya sering "gak kelihatan" terus */}
+      {status !== "live" && (
+        <ol className="grid gap-2 sm:grid-cols-3">
+          {[
+            {
+              n: "1",
+              t: "Taruh HP/laptop jauh",
+              d: "2-3 meter, setinggi pinggang. Badan sampai KAKI harus masuk frame — kalau kaki kepotong, kuda-kuda gak bisa dinilai.",
+            },
+            {
+              n: "2",
+              t: "Hadap kamera",
+              d: "Badan menghadap kamera, tangan bow jangan ketutupan badan. Ruangan jangan gelap.",
+            },
+            {
+              n: "3",
+              t: "Main seperti biasa",
+              d: "Gesek nada panjang bolak-balik 30 detik. Jangan pose — yang dinilai postur pas MAIN.",
+            },
+          ].map((s) => (
+            <li
+              key={s.n}
+              className="rounded-xl border border-border-soft bg-surface p-3"
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs text-background">
+                  {s.n}
+                </span>
+                {s.t}
+              </div>
+              <p className="mt-1 text-xs text-muted">{s.d}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+
       <div className="rounded-2xl border border-border-soft bg-surface p-4">
         <div className="relative overflow-hidden rounded-xl bg-black">
           {/* dicerminkan biar kayak ngaca */}
@@ -268,7 +304,15 @@ export default function PosturPage() {
                   <span className="flex-1">{c.label}</span>
                   <span className="font-mono text-xs text-muted">{c.value}</span>
                 </div>
-                {!c.ok && (
+                {c.target && (
+                  <p className="mt-1 text-[11px] text-muted">🎯 {c.target}</p>
+                )}
+                {!c.ok && c.measurable && (
+                  <p className="mt-1 rounded-lg bg-background/40 p-2 text-xs">
+                    <b className="text-accent-strong">Benerinnya:</b> {c.fix}
+                  </p>
+                )}
+                {!c.measurable && (
                   <p className="mt-1 text-xs text-muted">{c.fix}</p>
                 )}
               </li>

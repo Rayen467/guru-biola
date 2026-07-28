@@ -35,6 +35,8 @@ export interface PitchOptions {
   // Nada harus bertahan berapa lama sebelum diakui. Halaman lagu/ritme butuh
   // respons cepat; tuner boleh lebih sabar demi ketenangan jarum.
   stableMs?: number;
+  // Mode petik: buat yang nyetem sambil metik senar, bukan nggesek.
+  pluck?: boolean;
 }
 
 const FFT_SIZE = 4096; // ~93 ms @44.1 kHz — cukup buat G3 (196 Hz)
@@ -128,6 +130,9 @@ export function usePitch(options: PitchOptions = {}) {
   useEffect(() => {
     detectorRef.current?.setSensitivity(options.sensitivity ?? 0.5);
   }, [options.sensitivity]);
+  useEffect(() => {
+    detectorRef.current?.setPluck(options.pluck ?? false);
+  }, [options.pluck]);
 
   const flushPractice = useCallback(() => {
     if (!practiceSinceRef.current) return;
@@ -203,6 +208,7 @@ export function usePitch(options: PitchOptions = {}) {
         sampleRate: ctx.sampleRate,
         sensitivity: optsRef.current.sensitivity ?? 0.5,
         stableMs: optsRef.current.stableMs ?? 260,
+        pluck: optsRef.current.pluck ?? false,
       });
       const input = new Float32Array(FFT_SIZE);
 
