@@ -3,21 +3,150 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CURRICULUM } from "@/lib/curriculum";
-import { loadProgress, updateProgress } from "@/lib/progress";
+import {
+  loadProgress,
+  practiceStats,
+  problemNotes,
+  updateProgress,
+  type Progress,
+} from "@/lib/progress";
+import { midiToName } from "@/lib/notes";
+
+interface Advice {
+  headline: string;
+  why: string;
+  actions: { label: string; href: string }[];
+  notes: string[];
+}
+
+// Aturannya sengaja sederhana dan bisa dijelasin ke user — bukan tebak-tebakan
+// pintar-pintaran. Urutan periksa = urutan prioritas latihan biola beneran:
+// stem dulu, baru intonasi, baru kuping, baru tempo, baru repertoar.
+function buildAdvice(p: Progress, done: Record<string, boolean>): Advice {
+  const stats = practiceStats(p);
+  const weak = problemNotes(p).filter((n) => n.rate < 0.85);
+  const noteLabels = weak.slice(0, 4).map((n) => midiToName(n.midi));
+
+  const intoAcc =
+    p.intonation.attempts >= 15
+      ? p.intonation.hits / p.intonation.attempts
+      : null;
+  const earAcc =
+    p.earTraining.total >= 15 ? p.earTraining.correct / p.earTraining.total : null;
+  const rhythm = p.rhythm?.bestAvgMs ?? null;
+
+  // Level pertama yang belum kelar
+  const level = CURRICULUM.find((lv) =>
+    lv.exercises.some((_, i) => !done[`${lv.id}:${i}`])
+  );
+
+  // 1. Belum latihan hari ini → apa pun kalah sama konsistensi
+  if (stats.todaySeconds < 300) {
+    return {
+      headline:
+        stats.streak > 0
+          ? `Jaga streak ${stats.streak} hari — 5 menit aja cukup`
+          : "Mulai dari stem, 5 menit",
+      why: "Belum ada latihan berarti hari ini. Latihan pendek yang rutin ngalahin latihan panjang seminggu sekali — mulai dari stem, terus satu tangga nada.",
+      actions: [
+        { label: "🎯 Stem", href: "/tuner" },
+        { label: "🎻 Intonasi", href: "/intonasi" },
+      ],
+      notes: noteLabels,
+    };
+  }
+
+  // 2. Ada nada yang jelas bermasalah → itu yang paling cepat ngasih hasil
+  if (weak.length >= 2) {
+    return {
+      headline: `Beresin ${weak.length} nada yang masih meleset`,
+      why: "App udah nyatat nada mana yang sering gagal dari latihan lu. Ngerjain nada itu doang jauh lebih cepat daripada ngulang seluruh tangga nada. Nyalain drone di nada dasarnya biar telinganya dapet patokan.",
+      actions: [{ label: "🎻 Latih nada bermasalah", href: "/intonasi" }],
+      notes: noteLabels,
+    };
+  }
+
+  // 3. Intonasi masih rendah → pelanin, jangan nambah materi
+  if (intoAcc !== null && intoAcc < 0.65) {
+    return {
+      headline: "Turunin kecepatan, rapiin intonasi dulu",
+      why: `Akurasi intonasi lu ${Math.round(intoAcc * 100)}%. Di bawah 65% berarti jari belum hafal tempatnya — nambah materi baru sekarang cuma numpuk kesalahan. Satu set, pelan, sampai bersih.`,
+      actions: [
+        { label: "🎻 Intonasi + drone", href: "/intonasi" },
+        { label: "🎯 Cek stem", href: "/tuner" },
+      ],
+      notes: noteLabels,
+    };
+  }
+
+  // 4. Kuping ketinggalan
+  if (earAcc !== null && earAcc < 0.7) {
+    return {
+      headline: "Kuping ketinggalan dari jari",
+      why: `Akurasi ear training ${Math.round(earAcc * 100)}%. Jari lu udah lumayan, tapi telinga belum bisa ngoreksi sendiri — dan itu yang bikin intonasi mentok. 10 soal per hari cukup.`,
+      actions: [{ label: "👂 Latih kuping", href: "/kuping" }],
+      notes: noteLabels,
+    };
+  }
+
+  // 5. Ritme belum pernah / masih kasar
+  if (rhythm === null || rhythm > 70) {
+    return {
+      headline:
+        rhythm === null ? "Waktunya mulai latihan ritme" : "Rapiin ketepatan tempo",
+      why:
+        rhythm === null
+          ? "Nada dan kuping lu udah jalan. Yang belum pernah diukur: ketepatan waktu gesekan. Itu bagian yang paling kedengeran sama pendengar."
+          : `Rata-rata meleset terbaik lu ${rhythm} ms. Target di bawah 50 ms — di situ orang gak denger melesetnya lagi.`,
+      actions: [
+        { label: "⏱️ Latihan ritme", href: "/ritme" },
+        { label: "🥁 Metronom", href: "/metronome" },
+      ],
+      notes: noteLabels,
+    };
+  }
+
+  // 6. Semua dasar aman → lanjut materi level berikutnya
+  const nextEx = level?.exercises.findIndex((_, i) => !done[`${level.id}:${i}`]);
+  return {
+    headline: level
+      ? `Lanjut: ${level.title}`
+      : "Semua level kelar — masuk repertoar bebas",
+    why:
+      level && nextEx !== undefined && nextEx >= 0
+        ? `Dasar lu udah aman (intonasi, kuping, ritme semua di atas ambang). Latihan berikutnya: ${level.exercises[nextEx].label}.`
+        : "Dasar aman dan kurikulum tuntas. Pilih repertoar sesuai grade di halaman silabus.",
+    actions: level?.exercises[nextEx ?? 0]?.tool
+      ? [
+          { label: "Buka alatnya", href: level.exercises[nextEx ?? 0].tool! },
+          { label: "🎵 Mode lagu", href: "/lagu" },
+        ]
+      : [
+          { label: "🎵 Mode lagu", href: "/lagu" },
+          { label: "📋 Silabus", href: "/silabus" },
+        ],
+    notes: noteLabels,
+  };
+}
 
 export default function KurikulumPage() {
   const [done, setDone] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
 
   useEffect(() => {
     const p = loadProgress();
     setDone(p.doneExercises);
+    setProgress(p);
     // buka level pertama yang belum kelar
     const firstUnfinished = CURRICULUM.find((lv) =>
       lv.exercises.some((_, i) => !p.doneExercises[`${lv.id}:${i}`])
     );
     setOpen(firstUnfinished?.id ?? CURRICULUM[0].id);
   }, []);
+
+  // Saran latihan hari ini, disusun dari data — bukan urutan statis.
+  const advice = progress ? buildAdvice(progress, done) : null;
 
   const toggle = (levelId: string, exIdx: number) => {
     const key = `${levelId}:${exIdx}`;
@@ -45,6 +174,37 @@ export default function KurikulumPage() {
           .
         </p>
       </header>
+
+      {/* Saran hari ini — dari catatan latihan, bukan urutan tetap. Ini yang
+          bikin halaman ini beda dari daftar centang biasa. */}
+      {advice && (
+        <div className="animate-fade-up sweep relative overflow-hidden rounded-2xl border border-accent/50 bg-accent/10 p-5">
+          <div className="text-xs uppercase tracking-wide text-muted">
+            Saran latihan hari ini
+          </div>
+          <h2 className="mt-1 text-lg font-bold text-accent-strong">
+            {advice.headline}
+          </h2>
+          <p className="mt-1 text-sm">{advice.why}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {advice.actions.map((a) => (
+              <Link
+                key={a.href}
+                href={a.href}
+                className="press rounded-full bg-accent px-4 py-2 text-xs font-semibold text-background hover:bg-accent-strong"
+              >
+                {a.label} →
+              </Link>
+            ))}
+          </div>
+          {advice.notes.length > 0 && (
+            <p className="mt-3 rounded-lg bg-surface-2 p-2.5 text-xs text-muted">
+              Nada yang paling perlu diberesin:{" "}
+              <b className="text-foreground">{advice.notes.join(" · ")}</b>
+            </p>
+          )}
+        </div>
+      )}
 
       <ol className="space-y-3">
         {CURRICULUM.map((lv) => {
