@@ -44,6 +44,9 @@ export interface Detection {
   // 0..1 — kemiripan bentuk spektrum frame ini dengan profil suara ruangan.
   // Mendekati 1 = ini cuma ruangannya (kipas/AC/dengung), bukan suara baru.
   noiseMatch: number;
+  // 0..1 — seberapa jauh ambang lagi dilonggarin otomatis karena lama gak
+  // ketemu nada. Ditampilkan di UI biar user tahu app-nya lagi ngalah.
+  relax: number;
   level: number; // RMS
   noiseFloor: number; // RMS suara latar
   calibrating: boolean;
@@ -157,6 +160,13 @@ export class ViolinDetector {
   private startedAt: number | null = null;
   private history: { t: number; f: number }[] = [];
   private lockedUntil = 0;
+  // Pelonggaran otomatis. Kalau beberapa detik berturut-turut ada suara masuk
+  // tapi gak ada satu pun yang lolos jadi nada, kemungkinan besar bukan
+  // user-nya yang salah — mic-nya lemah, ruangannya mati, atau biolanya
+  // berkarakter beda dari asumsi kita. Ambangnya diturunin pelan-pelan sampai
+  // ketemu, terus dikembalikan begitu nada beneran kebaca.
+  private lastOkAt = 0;
+  private relax = 0; // 0..1
   // Profil spektrum suara ruangan (rata-rata magnitudo per bin), dipelajari
   // pas kalibrasi dan terus diperbarui pelan tiap frame yang bukan nada.
   // Ini inti cara kerja peredam noise macam Krisp: kenali dulu bentuk
@@ -461,7 +471,15 @@ export class ViolinDetector {
   process(buf: Float32Array, now: number): Detection {
     if (this.startedAt === null) this.startedAt = now;
     const pluck = this.opts.pluck;
-    const th = thresholds(this.opts.sensitivity, pluck);
+    if (this.lastOkAt === 0) this.lastOkAt = now;
+    // Setelah 2,5 detik tanpa nada, mulai ngalah; penuh setelah ±9 detik.
+    const idleMs = now - this.lastOkAt;
+    this.relax = Math.max(0, Math.min(1, (idleMs - 2500) / 6500));
+    // Sensitivitas efektif = setelan user + pelonggaran otomatis.
+    const th = thresholds(
+      Math.min(1, this.opts.sensitivity + this.relax * 0.5),
+      pluck
+    );
     // Nada petikan cuma bertahan sepersekian detik sebelum meredup — nunggu
     // 260 ms bikin petikan gak pernah keitung sama sekali.
     const stableMs = pluck ? 110 : this.opts.stableMs;
@@ -484,6 +502,7 @@ export class ViolinDetector {
       level,
       noiseFloor: this.noiseFloor,
       calibrating,
+      relax: this.relax,
     };
 
     // Patokan suara latar = PELACAK MINIMUM, bukan rata-rata: turun cepat pas
@@ -613,7 +632,10 @@ export class ViolinDetector {
     // (f0 di bawah ~330 Hz). Di atas itu praktis gak ada orang yang nahan
     // vokal selama ratusan milidetik, sementara senar A dan E justru banyak
     // main di sana — jadi ngetes di situ cuma bikin biola ketolak.
-    const inVoiceZone = cand < VOICE_ZONE_HZ;
+    // Penjaga suara-orang dimatiin kalau app udah lama gak nemu nada: lebih
+    // baik kelolosan suara orang sesekali daripada biola user gak kebaca sama
+    // sekali. Begitu nada beneran ketemu, penjaganya balik nyala.
+    const inVoiceZone = cand < VOICE_ZONE_HZ && this.relax < 0.5;
     const irregular = prof.bumps > th.maxBumps || prof.peakPartial > th.maxPeakPartial;
     if (inVoiceZone && irregular && !locked) {
       updateFloor(false);
@@ -650,6 +672,9 @@ export class ViolinDetector {
     }
 
     this.lockedUntil = now + LOCK_HOLD_MS;
+    // Ketemu nada → pelonggaran direset, ambang balik ketat.
+    this.lastOkAt = now;
+    this.relax = 0;
 
     // Kalau nadanya ketemu lewat sisir harmonik, kejernihan gelombang emang
     // rendah (itu memang kondisinya) — keyakinan dihitung dari kekuatan
@@ -676,6 +701,7 @@ export class ViolinDetector {
       level,
       noiseFloor: this.noiseFloor,
       calibrating: false,
+      relax: 0,
       reason: "ok",
     };
   }

@@ -29,6 +29,16 @@ export default function BowKameraPage() {
   const runningRef = useRef(false);
   const counterRef = useRef(new PushUpCounter());
   const holdRef = useRef({ okFrames: 0, total: 0 });
+  // Kanvas bantu buat nyerahin gambar yang udah diterangin ke detektor.
+  // Ruangan remang bikin model tangan gagal walau mata kita jelas lihat tangan.
+  const prepRef = useRef<HTMLCanvasElement | null>(null);
+  const boostRef = useRef(1);
+  const [dark, setDark] = useState(false);
+  // Kidal = biola di bahu kanan, bow di tangan kiri. Dipakai buat milih tangan
+  // mana yang dinilai kalau dua-duanya kelihatan kamera.
+  const [leftHanded, setLeftHanded] = useState(false);
+  const leftHandedRef = useRef(false);
+  leftHandedRef.current = leftHanded;
 
   const [status, setStatus] = useState<"idle" | "loading" | "live">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +90,16 @@ export default function BowKameraPage() {
               modelAssetPath: `${BASE}/pose/hand_landmarker.task`,
             },
             runningMode: "VIDEO",
-            numHands: 1,
+            // DUA tangan: pas main biola, tangan kiri megang leher biola dan
+            // ikut kelihatan kamera. Kalau cuma minta satu, yang kepilih bisa
+            // tangan yang salah — atau gagal dua-duanya.
+            numHands: 2,
+            // Ambang bawaan (0,5) kekencengan buat ruangan remang dan tangan
+            // yang sebagian ketutupan bow. Diturunin; hasil yang meragukan
+            // tetap kesaring sama uji sudut di bawah.
+            minHandDetectionConfidence: 0.3,
+            minHandPresenceConfidence: 0.3,
+            minTrackingConfidence: 0.3,
           }
         );
       }
@@ -115,12 +134,15 @@ export default function BowKameraPage() {
         if (!runningRef.current) return;
         const lmk = landmarkerRef.current as {
           detectForVideo: (
-            v: HTMLVideoElement,
+            v: HTMLVideoElement | HTMLCanvasElement,
             t: number
-          ) => { landmarks: HandPoint[][] };
+          ) => HandResult;
         };
-        const res = lmk.detectForVideo(video, performance.now());
-        const hand = res.landmarks?.[0];
+        // 1) Terangin dulu gambarnya, baru dideteksi.
+        const src = brighten(video, prepRef, boostRef, setDark);
+        const res = lmk.detectForVideo(src, performance.now());
+        // 2) Dari (mungkin) dua tangan, ambil TANGAN BOW-nya.
+        const hand = pickBowHand(res, leftHandedRef.current);
         setHandSeen(!!hand);
 
         const canvas = canvasRef.current;
@@ -214,6 +236,7 @@ export default function BowKameraPage() {
         </ol>
       )}
 
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
       <div className="rounded-2xl border border-border-soft bg-surface p-4">
         <div className="relative overflow-hidden rounded-xl bg-black">
           <video ref={videoRef} playsInline muted className="w-full -scale-x-100" />
@@ -234,13 +257,39 @@ export default function BowKameraPage() {
                   {reading?.score ?? 0}%
                 </span>
               ) : (
-                <span className="text-muted">tangan gak kelihatan</span>
+                <span className="text-muted">
+                  {dark ? "🔦 gelap — nyalain lampu" : "nyari tangan…"}
+                </span>
               )}
             </div>
           )}
           {status === "live" && drill === "pushup" && (
             <div className="absolute right-3 top-3 rounded-full bg-background/80 px-3 py-1 text-sm font-bold text-accent-strong">
               {reps} reps
+            </div>
+          )}
+
+          {/* Koreksi utama nempel di video — biar gak perlu scroll ke bawah
+              buat tahu yang salah apa dan benernya gimana. */}
+          {status === "live" && reading && (
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/95 to-transparent p-3">
+              {worst ? (
+                <div className="flex items-start gap-2">
+                  <span className="text-xl">⚠️</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-bold text-accent-strong">
+                      {worst.label} — sekarang {worst.value}
+                    </div>
+                    <div className="text-xs text-foreground">{worst.fix}</div>
+                    <div className="mt-0.5 text-[11px] text-muted">🎯 {worst.target}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm font-bold text-good">
+                  <span className="text-xl">✅</span> Pegangan lu bener — tahan
+                  posisi ini
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -256,6 +305,14 @@ export default function BowKameraPage() {
             }`}
           >
             {status === "live" ? "■ Stop kamera" : status === "loading" ? "⏳ Nyiapin…" : "📷 Nyalain kamera"}
+          </button>
+          <button
+            onClick={() => setLeftHanded((v) => !v)}
+            className={`rounded-full px-4 py-2 text-sm transition-colors ${
+              leftHanded ? "bg-accent/20 text-accent-strong" : "bg-surface-2 text-muted hover:text-foreground"
+            }`}
+          >
+            {leftHanded ? "Kidal: bow di tangan kiri" : "Standar: bow di tangan kanan"}
           </button>
           {[
             { v: "cek" as const, label: "🔍 Cek pegangan" },
@@ -279,6 +336,30 @@ export default function BowKameraPage() {
           ))}
         </div>
 
+        {status === "live" && !handSeen && (
+          <div className="mt-3 rounded-lg border border-accent/40 bg-accent/10 p-3 text-xs">
+            <b className="text-accent-strong">Tangan belum kebaca. Cek ini:</b>
+            <ul className="mt-1 list-inside list-disc space-y-0.5 text-muted">
+              {dark && (
+                <li className="text-foreground">
+                  Ruangannya gelap — ini penyebab paling sering. Nyalain lampu
+                  atau hadap ke jendela. (App udah otomatis nerangin gambarnya,
+                  tapi ada batasnya.)
+                </li>
+              )}
+              <li>
+                Dekatkan tangan ke kamera, 30-50 cm. Tangan yang kekecilan di
+                frame susah kebaca.
+              </li>
+              <li>
+                Jangan ada yang nutupin jari — badan biola atau bow yang
+                melintang bikin sebagian jari ilang.
+              </li>
+              <li>Latar belakang jangan sewarna kulit (tembok krem/cokelat).</li>
+            </ul>
+          </div>
+        )}
+
         {status === "live" && drill === "cek" && (
           <p className="mt-3 text-center text-xs text-muted">
             Pegangan bener bertahan: <b className="text-foreground">{holdPct}%</b> dari waktu.
@@ -293,17 +374,21 @@ export default function BowKameraPage() {
         )}
       </div>
 
-      <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
-
-      {/* Saran utama */}
-      {worst && status === "live" && (
-        <div className="animate-fade-up rounded-xl border border-accent/40 bg-accent/10 p-4">
-          <div className="text-sm font-semibold text-accent-strong">
-            Benerin ini dulu: {worst.label}
-          </div>
-          <p className="mt-1 text-sm">{worst.fix}</p>
+      {/* Kolom kanan: contoh yang BENER + daftar cek, sejajar sama video biar
+          gak perlu scroll buat mbandingin. */}
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-border-soft bg-surface p-4">
+          <h2 className="text-sm font-semibold text-accent-strong">
+            Contoh yang bener
+          </h2>
+          <CorrectHold />
+          <p className="mt-1 text-[11px] text-muted">
+            Franco-Belgian. Jempol menekuk di sudut frog, kelingking melengkung
+            di ATAS stick, telunjuk nyentuh di tengah ruas kedua.
+          </p>
         </div>
-      )}
+
+        <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
 
       {/* Daftar cek */}
       {reading && (
@@ -330,6 +415,8 @@ export default function BowKameraPage() {
           ))}
         </ul>
       )}
+      </div>
+      </div>
 
       <div className="space-y-2 rounded-xl border border-border-soft bg-surface p-4 text-xs text-muted">
         <p>
@@ -446,6 +533,143 @@ function buildHandAnalysis(
     subline: `${Math.round(seconds)} detik terpantau · rata-rata ${avg}% cek lolos`,
     verdicts,
   };
+}
+
+// Contoh pegangan yang bener, digambar di sebelah video biar bisa langsung
+// dibandingin sama tangan sendiri tanpa scroll.
+function CorrectHold() {
+  const spots = [
+    { x: 0.28, y: 0.3, t: "telunjuk", note: "tengah ruas ke-2" },
+    { x: 0.42, y: 0.26, t: "tengah", note: "" },
+    { x: 0.55, y: 0.28, t: "manis", note: "" },
+    { x: 0.68, y: 0.22, t: "kelingking", note: "MELENGKUNG di atas" },
+    { x: 0.42, y: 0.72, t: "jempol", note: "MENEKUK di sudut frog" },
+  ];
+  return (
+    <svg viewBox="0 0 420 250" className="mt-2 w-full">
+      <path
+        d="M30 140 Q 210 130 400 122"
+        stroke="var(--accent-strong)"
+        strokeWidth="8"
+        fill="none"
+        strokeLinecap="round"
+      />
+      <rect x="120" y="136" width="100" height="44" rx="9" fill="var(--muted)" />
+      <rect x="220" y="132" width="50" height="22" rx="6" fill="var(--border)" />
+      <line x1="34" y1="158" x2="400" y2="136" stroke="var(--foreground)" strokeWidth="3" opacity="0.55" />
+      {spots.map((s) => {
+        const cx = 70 + s.x * 280;
+        const cy = 50 + s.y * 160;
+        const key = s.t === "jempol" || s.t === "kelingking";
+        return (
+          <g key={s.t}>
+            <circle
+              cx={cx}
+              cy={cy}
+              r={key ? 17 : 13}
+              fill={key ? "var(--good)" : "var(--surface-2)"}
+              stroke={key ? "var(--good)" : "var(--border)"}
+              strokeWidth="2"
+            />
+            <text
+              x={cx}
+              y={cy + 4}
+              fontSize="10"
+              fontWeight="bold"
+              fill={key ? "var(--background)" : "var(--foreground)"}
+              textAnchor="middle"
+            >
+              {s.t.slice(0, 2)}
+            </text>
+            {s.note && (
+              <text
+                x={cx}
+                y={cy - 24}
+                fontSize="10"
+                fill="var(--good)"
+                textAnchor="middle"
+              >
+                {s.note}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+interface HandResult {
+  landmarks?: HandPoint[][];
+  handedness?: { categoryName?: string; score?: number }[][];
+  handednesses?: { categoryName?: string; score?: number }[][];
+}
+
+// Pas main biola, tangan kiri (megang leher biola) hampir selalu ikut masuk
+// frame. Yang mau dinilai TANGAN BOW. MediaPipe ngasih label kiri/kanan dari
+// sudut pandang gambar mentah (belum dicerminin), jadi labelnya bisa langsung
+// dipakai. Kalau labelnya gak ada, jatuh ke aturan posisi: tangan bow ada di
+// sisi berlawanan dari biola.
+function pickBowHand(res: HandResult, leftHanded: boolean): HandPoint[] | null {
+  const hands = res.landmarks ?? [];
+  if (hands.length === 0) return null;
+  if (hands.length === 1) return hands[0];
+
+  const labels = res.handedness ?? res.handednesses ?? [];
+  const want = leftHanded ? "Left" : "Right";
+  for (let i = 0; i < hands.length; i++) {
+    if (labels[i]?.[0]?.categoryName === want) return hands[i];
+  }
+
+  // Cadangan: pemain standar megang bow di kanan badan → di gambar mentah
+  // (belum dicerminin) tangan itu ada di sisi kiri frame.
+  const centerX = (h: HandPoint[]) =>
+    h.reduce((s, p) => s + p.x, 0) / h.length;
+  const sorted = [...hands].sort((a, b) => centerX(a) - centerX(b));
+  return leftHanded ? sorted[sorted.length - 1] : sorted[0];
+}
+
+// Naikkan kecerahan sebelum dideteksi. Model tangan gagal di ruangan remang
+// walau mata kita jelas lihat tangannya — ini yang bikin "tangan gak
+// kelihatan" padahal tangannya jelas ada di layar.
+function brighten(
+  video: HTMLVideoElement,
+  prepRef: React.RefObject<HTMLCanvasElement | null>,
+  boostRef: React.RefObject<number>,
+  setDark: (v: boolean) => void
+): HTMLVideoElement | HTMLCanvasElement {
+  if (!video.videoWidth) return video;
+  if (!prepRef.current) prepRef.current = document.createElement("canvas");
+  const c = prepRef.current;
+  const w = 480;
+  const h = Math.round((video.videoHeight / video.videoWidth) * w);
+  if (c.width !== w) {
+    c.width = w;
+    c.height = h;
+  }
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return video;
+
+  // Ukur terang rata-rata sesekali, terus setel penguatnya.
+  ctx.filter = "none";
+  ctx.drawImage(video, 0, 0, w, h);
+  const sample = ctx.getImageData(0, 0, w, h);
+  let sum = 0;
+  // ambil tiap piksel ke-40 aja — cukup buat rata-rata, murah buat tiap frame
+  for (let i = 0; i < sample.data.length; i += 160) {
+    sum += sample.data[i] * 0.299 + sample.data[i + 1] * 0.587 + sample.data[i + 2] * 0.114;
+  }
+  const avg = sum / (sample.data.length / 160);
+  const target = 118;
+  const wanted = Math.max(1, Math.min(2.8, target / Math.max(12, avg)));
+  // dihaluskan biar gak kedap-kedip
+  boostRef.current = boostRef.current + (wanted - boostRef.current) * 0.2;
+  setDark(avg < 70);
+
+  ctx.filter = `brightness(${boostRef.current.toFixed(2)}) contrast(1.18) saturate(1.1)`;
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.filter = "none";
+  return c;
 }
 
 function drawHand(

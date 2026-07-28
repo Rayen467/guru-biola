@@ -55,6 +55,9 @@ export default function PosturPage() {
   const [leftHanded, setLeftHanded] = useState(false);
   const [best, setBest] = useState<number | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [dark, setDark] = useState(false);
+  const prepRef = useRef<HTMLCanvasElement | null>(null);
+  const boostRef = useRef(1);
   // Berapa lama tiap cek BERTAHAN bener sepanjang sesi. Satu frame bagus itu
   // gampang; yang dinilai porsi waktunya.
   const tallyRef = useRef<{
@@ -111,6 +114,11 @@ export default function PosturPage() {
             },
             runningMode: "VIDEO",
             numPoses: 1,
+            // Diturunin dari bawaan 0,5: ruang latihan sering remang, dan
+            // badan yang setengah ketutupan biola bikin skornya turun.
+            minPoseDetectionConfidence: 0.3,
+            minPosePresenceConfidence: 0.3,
+            minTrackingConfidence: 0.3,
           }
         );
       }
@@ -142,12 +150,15 @@ export default function PosturPage() {
         if (!runningRef.current) return;
         const lmk = landmarkerRef.current as {
           detectForVideo: (
-            v: HTMLVideoElement,
+            v: HTMLVideoElement | HTMLCanvasElement,
             t: number
           ) => { landmarks: Point[][] };
         };
         const now = performance.now();
-        const res = lmk.detectForVideo(video, now);
+        // Terangin dulu: ruang latihan remang bikin badan gak kedeteksi walau
+        // di layar jelas kelihatan.
+        const src = brightenFrame(video, prepRef, boostRef, setDark);
+        const res = lmk.detectForVideo(src, now);
         const pose = res.landmarks?.[0];
 
         const canvas = canvasRef.current;
@@ -279,9 +290,9 @@ export default function PosturPage() {
                 : "Kamera mati"}
             </div>
           )}
-          {reading && status === "live" && (
+          {status === "live" && (
             <div className="absolute left-3 top-3 rounded-full bg-background/80 px-3 py-1 text-sm font-bold text-accent-strong">
-              {reading.score}%
+              {reading ? `${reading.score}%` : dark ? "🔦 gelap — nyalain lampu" : "nyari badan…"}
             </div>
           )}
         </div>
@@ -401,6 +412,45 @@ export default function PosturPage() {
       </div>
     </div>
   );
+}
+
+// Naikkan kecerahan sebelum dideteksi — sama seperti di halaman pegangan bow.
+// Tanpa ini, ruangan remang bikin badan gak kedeteksi padahal jelas kelihatan.
+function brightenFrame(
+  video: HTMLVideoElement,
+  prepRef: React.RefObject<HTMLCanvasElement | null>,
+  boostRef: React.RefObject<number>,
+  setDark: (v: boolean) => void
+): HTMLVideoElement | HTMLCanvasElement {
+  if (!video.videoWidth) return video;
+  if (!prepRef.current) prepRef.current = document.createElement("canvas");
+  const c = prepRef.current;
+  const w = 480;
+  const h = Math.round((video.videoHeight / video.videoWidth) * w);
+  if (c.width !== w) {
+    c.width = w;
+    c.height = h;
+  }
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return video;
+
+  ctx.filter = "none";
+  ctx.drawImage(video, 0, 0, w, h);
+  const sample = ctx.getImageData(0, 0, w, h);
+  let sum = 0;
+  for (let i = 0; i < sample.data.length; i += 160) {
+    sum +=
+      sample.data[i] * 0.299 + sample.data[i + 1] * 0.587 + sample.data[i + 2] * 0.114;
+  }
+  const avg = sum / (sample.data.length / 160);
+  const wanted = Math.max(1, Math.min(2.8, 118 / Math.max(12, avg)));
+  boostRef.current = boostRef.current + (wanted - boostRef.current) * 0.2;
+  setDark(avg < 70);
+
+  ctx.filter = `brightness(${boostRef.current.toFixed(2)}) contrast(1.18) saturate(1.1)`;
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.filter = "none";
+  return c;
 }
 
 // Analisis akhir sesi: yang dilaporin PORSI WAKTU tiap cek bertahan bener,

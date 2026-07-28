@@ -41,6 +41,11 @@ export default function TunerPage() {
   // Petik vs gesek: nada petikan cuma bunyi sebentar, jadi syarat "nada harus
   // bertahan" beda. Dipilih user, bukan ditebak app.
   const [pluck, setPluck] = useState(false);
+  // null = otomatis (app nebak senarnya). Angka = senar yang DIKUNCI user.
+  // Auto itu enak pas senarnya udah deket; pas masih jauh (senar baru, pasak
+  // molor), nada yang kebaca bisa lebih dekat ke senar sebelah dan targetnya
+  // loncat sendiri. Makanya harus bisa dikunci manual.
+  const [lockString, setLockString] = useState<number | null>(null);
   const {
     freq,
     clarity,
@@ -52,6 +57,8 @@ export default function TunerPage() {
     calibrating,
     noiseFloorDb,
     reason,
+    relax,
+    rawFreq,
     start,
     stop,
   } = usePitch({ sensitivity, pluck });
@@ -94,11 +101,14 @@ export default function TunerPage() {
           if (Math.abs(diffs[i]) < Math.abs(diffs[best])) best = i;
         }
         const prev = lockedRef.current;
+        // Senar yang dikunci user menang mutlak — jangan dipindah app.
         const idx =
-          prev !== null &&
-          Math.abs(diffs[prev]) <= Math.abs(diffs[best]) + HYSTERESIS
-            ? prev
-            : best;
+          lockString !== null
+            ? lockString
+            : prev !== null &&
+                Math.abs(diffs[prev]) <= Math.abs(diffs[best]) + HYSTERESIS
+              ? prev
+              : best;
         lockedRef.current = idx;
         setReading({ freq: median, stringIdx: idx, cents: Math.round(diffs[idx]) });
       }
@@ -107,13 +117,17 @@ export default function TunerPage() {
       hist.current = [];
       setReading(null);
     }
-  }, [freq, clarity, active, a4]);
+  }, [freq, clarity, active, a4, lockString]);
 
   const str = reading ? VIOLIN_STRINGS[reading.stringIdx] : null;
   const strFreq = str ? midiToFreq(str.midi) : 0;
   const cents = reading?.cents ?? 0;
   const inTune = reading !== null && Math.abs(cents) <= IN_TUNE;
-  const tooFar = reading !== null && Math.abs(cents) > FAR_CENTS;
+  // Pas senar dikunci manual, jangan cepat-cepat bilang "bukan senar kosong":
+  // senar yang kendor banget emang bisa meleset jauh, dan justru itu yang mau
+  // dibenerin. Batasnya dilebarin jadi hampir satu oktaf.
+  const farLimit = lockString !== null ? 900 : FAR_CENTS;
+  const tooFar = reading !== null && Math.abs(cents) > farLimit;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -132,19 +146,41 @@ export default function TunerPage() {
         </div>
       )}
 
-      {/* Kartu 4 senar — yang ke-lock nyala otomatis */}
-      <div className="grid grid-cols-4 gap-2">
+      {/* Pilih senar: klik = kunci, klik lagi = balik otomatis */}
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted">
+            {lockString === null
+              ? "Mode OTOMATIS — app nebak senarnya. Kalau targetnya loncat-loncat, klik senar yang lagi lu stem."
+              : `Dikunci ke senar ${VIOLIN_STRINGS[lockString].name} — app gak bakal pindah target.`}
+          </span>
+          {lockString !== null && (
+            <button
+              onClick={() => setLockString(null)}
+              className="rounded-full bg-surface-2 px-3 py-1 text-xs text-muted hover:text-foreground"
+            >
+              ↺ balik otomatis
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-4 gap-2">
         {VIOLIN_STRINGS.map((s, i) => {
           const isLocked = reading?.stringIdx === i;
+          const isPinned = lockString === i;
           return (
-            <div
+            <button
               key={s.name}
+              onClick={() => setLockString(isPinned ? null : i)}
               className={`rounded-xl border p-3 text-center transition-colors ${
-                isLocked
+                isPinned
                   ? inTune
-                    ? "border-good bg-good/15"
-                    : "border-accent bg-accent/15"
-                  : "border-border-soft bg-surface"
+                    ? "border-good bg-good/25 ring-2 ring-good"
+                    : "border-accent bg-accent/25 ring-2 ring-accent"
+                  : isLocked
+                    ? inTune
+                      ? "border-good bg-good/15"
+                      : "border-accent bg-accent/15"
+                    : "border-border-soft bg-surface hover:border-accent/60"
               }`}
             >
               <div
@@ -157,17 +193,30 @@ export default function TunerPage() {
               <div className="text-[11px] text-muted">
                 {midiToFreq(s.midi).toFixed(1)} Hz
               </div>
-              <button
-                onClick={() => playTone(midiToFreq(s.midi), 1.5)}
-                disabled={active}
-                className="mt-1 text-[11px] text-accent-strong hover:underline disabled:opacity-40"
+              {/* span, bukan button — tombol di dalam tombol itu HTML gak sah */}
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!active) playTone(midiToFreq(s.midi), 1.5);
+                }}
+                className={`mt-1 block text-[11px] text-accent-strong hover:underline ${
+                  active ? "opacity-40" : ""
+                }`}
                 title="Matiin mic dulu — kalau nggak, suara speaker ikut ke-deteksi"
               >
                 ▶ contoh
-              </button>
-            </div>
+              </span>
+              {isPinned && (
+                <span className="mt-1 block text-[10px] font-semibold text-accent-strong">
+                  🔒 dikunci
+                </span>
+              )}
+            </button>
           );
         })}
+        </div>
       </div>
 
       <div className="rounded-2xl border border-border-soft bg-surface p-6 text-center">
@@ -181,8 +230,10 @@ export default function TunerPage() {
                 </div>
                 <div className="mt-2 text-sm text-muted">
                   Kedeteksi {freqToNote(reading.freq).name} (
-                  {reading.freq.toFixed(1)} Hz) — jauh banget dari semua senar.
-                  Lepas semua jari dari fingerboard, gesek senarnya doang.
+                  {reading.freq.toFixed(1)} Hz) —{" "}
+                  {lockString !== null
+                    ? `beda lebih dari satu nada penuh dari senar ${VIOLIN_STRINGS[lockString].name}. Kalau emang lagi masang senar baru, terus puter pasaknya; kalau nggak, cek jangan ada jari yang nempel.`
+                    : "jauh banget dari semua senar. Lepas semua jari dari fingerboard, gesek senarnya doang."}
                 </div>
               </>
             ) : inTune ? (
@@ -265,6 +316,31 @@ export default function TunerPage() {
         </div>
 
         {/* Pelatih gesekan: kekecilan / pecah / cempreng */}
+        {/* Kalau app lama gak nemu nada, dia ngalah sendiri — dikasih tahu ke
+            user biar gak ngerasa alatnya diem-diem rusak. */}
+        {active && relax > 0.15 && (
+          <div className="mt-3 rounded-lg border border-accent/40 bg-accent/10 p-2.5 text-left text-xs">
+            <b className="text-accent-strong">
+              Lagi ngelonggarin deteksi ({Math.round(relax * 100)}%)
+            </b>{" "}
+            — udah beberapa detik gesekan lu gak lolos saringan, jadi ambangnya
+            diturunin otomatis.
+            {rawFreq > 0 && (
+              <>
+                {" "}
+                Nada mentah yang kebaca sekarang:{" "}
+                <b className="text-foreground">{rawFreq.toFixed(1)} Hz</b>.
+              </>
+            )}{" "}
+            Kalau tetap gak kebaca: deketin mic ke biola (20-30 cm), atau geser
+            slider sensitivitas ke KANAN. Mau lihat angka mentahnya?{" "}
+            <Link href="/mic" className="text-accent-strong underline">
+              buka diagnosa
+            </Link>
+            .
+          </div>
+        )}
+
         <div className="mt-4">
           <BowFeedback
             active={active}
