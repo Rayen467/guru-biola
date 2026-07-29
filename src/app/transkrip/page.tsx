@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePitch } from "@/lib/usePitch";
-import { useSensitivity } from "@/lib/micSettings";
+import {
+  captureMic,
+  captureTabAudio,
+  listenFrames,
+  type Listener,
+} from "@/lib/listen";
 import { midiToName } from "@/lib/notes";
 import { fingerHint, notesToSong, saveCustomSong } from "@/lib/songs";
 import {
@@ -25,13 +29,16 @@ import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 // lewat API, dan mengunduh dari YouTube melanggar ketentuannya.
 
 export default function TranskripPage() {
-  const sensitivity = useSensitivity();
-  const { freq, active, error, start, stop } = usePitch({
-    sensitivity,
-    stableMs: 120,
-  });
+  // Penangkap nada polos — BUKAN usePitch. usePitch nolak apa pun yang
+  // timbrenya bukan dawai digesek, jadi kalau dipakai di sini, lagu vokal atau
+  // piano bakal dibuang mentah-mentah.
+  const [listener, setListener] = useState<Listener | null>(null);
+  const [level, setLevel] = useState(0);
+  const [jumlahFrame, setJumlahFrame] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const active = listener !== null;
 
-  const [mode, setMode] = useState<"berkas" | "dengar">("berkas");
+  const [mode, setMode] = useState<"berkas" | "tab" | "mic">("tab");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [notes, setNotes] = useState<RawNote[]>([]);
@@ -41,17 +48,22 @@ export default function TranskripPage() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [octave, setOctave] = useState(0);
 
-  const liveRef = useRef<{ t: number; midi: number | null }[]>([]);
-  const listenStart = useRef(0);
-
-  // Rekam jejak nada selama mode dengar.
+  // Meteran level + hitungan bacaan, biar kelihatan alatnya beneran denger.
   useEffect(() => {
-    if (mode !== "dengar" || !active) return;
-    liveRef.current.push({
-      t: performance.now() - listenStart.current,
-      midi: freq !== null ? 69 + 12 * Math.log2(freq / 440) : null,
-    });
-  }, [freq, active, mode]);
+    if (!listener) return;
+    const id = window.setInterval(() => {
+      setLevel(listener.level());
+      setJumlahFrame(listener.frames.length);
+    }, 200);
+    return () => window.clearInterval(id);
+  }, [listener]);
+
+  // Kalau halaman ditinggal sementara stream masih jalan, lepas perangkatnya.
+  useEffect(() => {
+    return () => {
+      listener?.stop();
+    };
+  }, [listener]);
 
   const olahBerkas = useCallback(async (file: File) => {
     setBusy(true);
@@ -81,30 +93,53 @@ export default function TranskripPage() {
   }, []);
 
   const mulaiDengar = async () => {
-    liveRef.current = [];
-    listenStart.current = performance.now();
     setNotes([]);
     setPesan(null);
     setAnalysis(null);
-    await start();
-  };
-
-  const selesaiDengar = () => {
-    stop();
-    // Aturan penggabungannya persis sama dengan jalur berkas — satu fungsi,
-    // supaya perbaikan di satu tempat berlaku di dua-duanya.
-    const frames = liveRef.current;
-    const hasil = groupFrames(frames);
-
-    setNotes(hasil);
-    setBpm(guessBpm(hasil));
-    setAnalysis(buildAnalysis(hasil, frames.length ? frames[frames.length - 1].t / 1000 : 0));
-    if (hasil.length === 0) {
-      setPesan(
-        "Gak ada nada yang ketangkep. Cek: speakernya kekecilan? mic-nya kejauhan? atau lagunya kebanyakan instrumen bareng."
+    setError(null);
+    setJumlahFrame(0);
+    try {
+      const stream = mode === "tab" ? await captureTabAudio() : await captureMic();
+      const l = listenFrames(stream);
+      setListener(l);
+      // Kalau user menghentikan berbagi lewat tombol bawaan browser, jangan
+      // biarkan halaman ini menggantung mengira masih merekam.
+      stream.getAudioTracks()[0]?.addEventListener("ended", () => selesai(l));
+    } catch (e) {
+      setError(
+        e instanceof DOMException && e.name === "NotAllowedError"
+          ? "Izin ditolak. Buat mode tab: pilih tabnya lalu CENTANG 'Also share tab audio'."
+          : e instanceof Error
+            ? e.message
+            : String(e)
       );
     }
   };
+
+  const selesai = useCallback(
+    (l?: Listener) => {
+      const target = l ?? listener;
+      if (!target) return;
+      const frames = target.stop();
+      setListener(null);
+      // Aturan penggabungannya persis sama dengan jalur berkas — satu fungsi,
+      // supaya perbaikan di satu tempat berlaku di dua-duanya.
+      const hasil = groupFrames(frames);
+      setNotes(hasil);
+      setBpm(guessBpm(hasil));
+      setAnalysis(
+        buildAnalysis(hasil, frames.length ? frames[frames.length - 1].t / 1000 : 0)
+      );
+      if (hasil.length === 0) {
+        setPesan(
+          mode === "tab"
+            ? "Gak ada nada ketangkep. Paling sering: kotak 'Also share tab audio' belum dicentang, atau lagunya lagi gak diputar."
+            : "Gak ada nada ketangkep. Cek speakernya kekecilan, mic kejauhan, atau lagunya kebanyakan instrumen bareng."
+        );
+      }
+    },
+    [listener, mode]
+  );
 
   const geser = (n: RawNote) => ({ ...n, midi: n.midi + octave * 12 });
   const tampil = notes.map(geser).filter((n) => n.midi >= VIOLIN_LOW && n.midi <= VIOLIN_HIGH);
@@ -135,17 +170,18 @@ export default function TranskripPage() {
         </p>
       </header>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {(
           [
+            { v: "tab" as const, label: "🖥️ Dari tab Spotify/YouTube" },
             { v: "berkas" as const, label: "📁 Dari berkas audio" },
-            { v: "dengar" as const, label: "🎧 Dengerin dari speaker" },
+            { v: "mic" as const, label: "🎧 Lewat mic (speaker)" },
           ]
         ).map((m) => (
           <button
             key={m.v}
             onClick={() => setMode(m.v)}
-            className={`press flex-1 rounded-lg px-3 py-2 text-sm ${
+            className={`press flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs sm:text-sm ${
               mode === m.v
                 ? "bg-accent font-semibold text-background"
                 : "bg-surface-2 text-muted hover:text-foreground"
@@ -190,24 +226,64 @@ export default function TranskripPage() {
           </div>
         ) : (
           <div className="space-y-3 text-center">
-            <p className="text-sm text-muted">
-              Puter lagunya di HP/laptop, dekatkan ke mic, lalu tekan mulai.
-              Makin sepi ruangannya makin bagus hasilnya.
-            </p>
+            {mode === "tab" ? (
+              <div className="mx-auto max-w-lg space-y-2 text-left text-sm text-muted">
+                <p>
+                  Cara ini paling bersih: suaranya diambil <b>langsung dari tab</b>,
+                  bukan lewat udara — gak kena gema ruangan atau suara sekitar.
+                </p>
+                <ol className="list-inside list-decimal space-y-1 text-xs">
+                  <li>Buka lagunya di tab lain (Spotify Web / YouTube), puter.</li>
+                  <li>Balik ke sini, tekan tombol di bawah.</li>
+                  <li>
+                    Pilih <b>tab</b> lagunya, dan <b className="text-accent-strong">
+                    centang &quot;Also share tab audio&quot;</b> di pojok kiri bawah.
+                    Tanpa centang itu, yang kebagi cuma gambar.
+                  </li>
+                </ol>
+                <p className="text-xs">
+                  Cuma jalan di komputer (Chrome/Edge/Brave). Di HP, browser gak
+                  ngasih akses audio tab — pakai mode mic.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">
+                Puter lagunya lewat speaker, dekatkan ke mic, lalu tekan mulai.
+                Makin sepi ruangannya makin bagus hasilnya.
+              </p>
+            )}
+
             <button
-              onClick={active ? selesaiDengar : mulaiDengar}
+              onClick={active ? () => selesai() : mulaiDengar}
               className={`press rounded-full px-6 py-2.5 font-semibold ${
                 active
                   ? "bg-bad text-background"
                   : "bg-accent text-background hover:bg-accent-strong"
               }`}
             >
-              {active ? "■ Selesai & ubah jadi not" : "🎧 Mulai dengerin"}
+              {active
+                ? "■ Selesai & ubah jadi not"
+                : mode === "tab"
+                  ? "🖥️ Pilih tab & mulai"
+                  : "🎧 Mulai dengerin"}
             </button>
+
             {active && (
-              <p className="animate-pop text-xs text-accent-strong">
-                Lagi dengerin… {liveRef.current.length} bacaan
-              </p>
+              <div className="space-y-2">
+                <div className="mx-auto flex h-8 max-w-xs items-end justify-center gap-1">
+                  {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                    <span
+                      key={i}
+                      className="listen-bar w-2 rounded-sm bg-accent"
+                      style={{ height: `${15 + level * 85}%` }}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs text-accent-strong">
+                  Lagi nangkep… {jumlahFrame} bacaan
+                  {level < 0.02 && " · suaranya belum kedengeran"}
+                </p>
+              </div>
             )}
           </div>
         )}
