@@ -14,6 +14,7 @@ import {
   type SongNote,
 } from "@/lib/songs";
 import Staff from "@/components/Staff";
+import Confetti from "@/components/Confetti";
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
 import { useSessionEval } from "@/lib/sessionEval";
@@ -150,10 +151,11 @@ export default function PartiturPage() {
       )}
 
       <div
-        className={`rounded-2xl border bg-surface p-4 transition-colors ${
+        className={`relative rounded-2xl border bg-surface p-4 transition-colors ${
           done ? "border-good animate-glow-good" : "border-border-soft"
         }`}
       >
+        <Confetti trigger={done} />
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <div className="text-sm font-semibold">{song.title}</div>

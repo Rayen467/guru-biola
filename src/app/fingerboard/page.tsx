@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { midiToFreq, midiToName } from "@/lib/notes";
+import { centsBetween, midiToFreq, midiToName } from "@/lib/notes";
 import { playTone } from "@/lib/tone";
+import { usePitch } from "@/lib/usePitch";
+import { useSensitivity } from "@/lib/micSettings";
 import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
+import BowFeedback from "@/components/BowFeedback";
 
 // Peta fingerboard posisi 1 + latihan hafalan.
 //
@@ -48,7 +51,7 @@ const PATTERNS = {
   },
 } as const;
 
-type Mode = "peta" | "cariNada" | "tebakNada";
+type Mode = "peta" | "live" | "cariNada" | "tebakNada";
 type PatternKey = keyof typeof PATTERNS;
 
 interface Answer {
@@ -68,6 +71,35 @@ export default function FingerboardPage() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const perNote = useRef<Record<number, { ok: number; total: number }>>({});
   const startedAt = useRef(0);
+
+  // Mode live: mic nyala, titik di peta nyala ngikutin nada yang lagi dimainkan.
+  const sensitivity = useSensitivity();
+  const {
+    freq,
+    volumeDb,
+    peak,
+    noisy,
+    calibrating,
+    noiseFloorDb,
+    reason,
+    active,
+    error,
+    start,
+    stop,
+  } = usePitch({ sensitivity, stableMs: 140 });
+
+  // Nada terdeteksi dibulatkan ke nada terdekat + simpangannya dalam cent.
+  const liveMidi =
+    freq !== null ? Math.round(69 + 12 * Math.log2(freq / 440)) : null;
+  const liveCents =
+    freq !== null && liveMidi !== null
+      ? Math.round(centsBetween(freq, midiToFreq(liveMidi)))
+      : null;
+
+  // Matikan mic begitu keluar dari mode live — jangan biarkan menyala diam-diam.
+  useEffect(() => {
+    if (mode !== "live" && active) stop();
+  }, [mode, active, stop]);
 
   const P = PATTERNS[pattern];
   const midiAt = useCallback(
@@ -161,6 +193,7 @@ export default function FingerboardPage() {
         {(
           [
             { v: "peta", label: "🗺️ Lihat peta" },
+            { v: "live", label: "🎤 Live — ikutin jari gua" },
             { v: "cariNada", label: "🔍 Di mana nada ini?" },
             { v: "tebakNada", label: "❓ Titik ini nada apa?" },
           ] as { v: Mode; label: string }[]
@@ -272,6 +305,84 @@ export default function FingerboardPage() {
         </div>
       )}
 
+      {/* Panel live */}
+      {mode === "live" && (
+        <div className="animate-fade-up rounded-2xl border border-accent/50 bg-accent/10 p-4 text-center">
+          {error && <p className="mb-2 text-sm text-bad">{error}</p>}
+          <p className="text-xs text-muted">
+            Gesek nada apa aja — titiknya nyala di peta bawah, plus dikasih tahu
+            jarinya ketinggian apa kerendahan.
+          </p>
+
+          <div className="mt-2 min-h-16">
+            {liveMidi !== null && liveCents !== null ? (
+              <>
+                <div className="animate-tick text-4xl font-bold text-accent-strong">
+                  {midiToName(liveMidi)}
+                </div>
+                <div
+                  className={`text-sm font-semibold ${
+                    Math.abs(liveCents) <= 10
+                      ? "text-good"
+                      : "text-accent-strong"
+                  }`}
+                >
+                  {Math.abs(liveCents) <= 10
+                    ? "pas 🎯"
+                    : liveCents > 0
+                      ? `+${liveCents} cent — jari mundur dikit`
+                      : `${liveCents} cent — jari maju dikit`}
+                </div>
+              </>
+            ) : (
+              <div className="pt-5 text-sm text-muted">
+                {active ? "Dengerin…" : "Mic belum nyala."}
+              </div>
+            )}
+          </div>
+
+          {/* Meteran cent */}
+          <div className="relative mx-auto mt-1 h-3 w-full max-w-sm rounded-full bg-surface-2">
+            <div className="absolute left-1/2 top-[-5px] h-5 w-0.5 -translate-x-1/2 bg-muted" />
+            <div className="absolute left-[45%] top-0 h-3 w-[10%] rounded-full bg-good/25" />
+            {liveCents !== null && (
+              <div
+                className={`absolute top-[-6px] h-5 w-1.5 -translate-x-1/2 rounded-full transition-all duration-150 ${
+                  Math.abs(liveCents) <= 10 ? "bg-good" : "bg-accent-strong"
+                }`}
+                style={{
+                  left: `${50 + (Math.max(-50, Math.min(50, liveCents)) / 50) * 50}%`,
+                }}
+              />
+            )}
+          </div>
+
+          <div className="mt-3">
+            <BowFeedback
+              active={active}
+              freq={freq}
+              volumeDb={volumeDb}
+              peak={peak}
+              noisy={noisy}
+              calibrating={calibrating}
+              noiseFloorDb={noiseFloorDb}
+              reason={reason}
+            />
+          </div>
+
+          <button
+            onClick={active ? stop : start}
+            className={`press mt-3 rounded-full px-6 py-2.5 font-semibold ${
+              active
+                ? "bg-surface-2 text-foreground hover:bg-border-soft"
+                : "bg-accent text-background hover:bg-accent-strong"
+            }`}
+          >
+            {active ? "■ Stop mic" : "🎤 Nyalain mic"}
+          </button>
+        </div>
+      )}
+
       <AnalysisCard analysis={analysis} onClose={() => setAnalysis(null)} />
 
       {/* Peta */}
@@ -303,6 +414,11 @@ export default function FingerboardPage() {
                 answer.chosen?.f === fi;
               const isRightSpot =
                 answer && quiz?.s === si && quiz?.f === fi;
+              // Mode live: titik yang nadanya lagi dimainkan ikut nyala.
+              // Satu nada bisa muncul di dua senar (mis. jari 3 senar D = A
+              // kosong) — dua-duanya sengaja dinyalain, karena itu memang
+              // pelajaran pentingnya.
+              const isLive = mode === "live" && liveMidi === midi;
 
               return (
                 <button
@@ -316,7 +432,13 @@ export default function FingerboardPage() {
                     playTone(midiToFreq(midi), 1.2);
                   }}
                   className={`press mx-auto flex h-11 w-11 items-center justify-center rounded-full border text-xs font-semibold sm:h-12 sm:w-12 sm:text-sm ${
-                    isQuizSpot
+                    isLive
+                      ? `note-live border-accent-strong text-background ${
+                          liveCents !== null && Math.abs(liveCents) <= 10
+                            ? "bg-good"
+                            : "bg-accent-strong"
+                        }`
+                      : isQuizSpot
                       ? "animate-glow-good border-accent bg-accent text-background"
                       : isRightSpot
                         ? "border-good bg-good/30"

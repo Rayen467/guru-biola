@@ -16,6 +16,7 @@ import {
 } from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
+import Confetti from "@/components/Confetti";
 import { useSessionEval } from "@/lib/sessionEval";
 
 // Mode Lagu: ikutin deretan nada pakai biola beneran.
@@ -258,7 +259,8 @@ export default function LaguPage() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-border-soft bg-surface p-5">
+      <div className="relative rounded-2xl border border-border-soft bg-surface p-5">
+        <Confetti trigger={finished} />
         <div className="mb-1 flex items-baseline justify-between">
           <div>
             <span className="font-semibold">{song.title}</span>

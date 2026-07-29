@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import PwaSetup from "@/components/PwaSetup";
+import PageTransition from "@/components/PageTransition";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -50,9 +51,9 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col">
         <Nav />
-        <main className="animate-fade-up mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
           <PwaSetup />
-          {children}
+          <PageTransition>{children}</PageTransition>
         </main>
         <footer className="border-t border-border-soft py-4 text-center text-xs text-muted">
           Guru Biola — latihan tiap hari 15 menit ngalahin latihan seminggu
