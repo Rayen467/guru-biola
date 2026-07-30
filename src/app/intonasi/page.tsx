@@ -256,22 +256,26 @@ export default function IntonasiPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">🎻 Latihan Intonasi</h1>
-        <p className="mt-1 text-sm text-muted">
-          App kasih nada target, lu mainkan. Tahan nadanya sampai batang hijau
-          penuh = kena. Toleransi ±{TOLERANCE} cent.
+    // Tata letak bento: satu layar, tanpa ruang terbuang. Kotak besar buat yang
+    // dipelototin sambil main (nada target + jarum), kotak kecil buat setelan
+    // yang cuma sesekali disentuh. Di HP semuanya jadi satu kolom.
+    <div className="mx-auto max-w-5xl space-y-3">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-xl font-bold">🎻 Latihan Intonasi</h1>
+        <p className="text-xs text-muted">
+          Tahan nada sampai batang hijau penuh = kena · toleransi ±{TOLERANCE}{" "}
+          cent
         </p>
       </header>
 
+      <div className="grid gap-3 lg:grid-cols-3">
       {/* Nada bermasalah — dikumpulin dari latihan lu sendiri, bukan tebakan.
           Ini yang bikin latihan besok beda dari latihan hari ini. */}
       {problems.length > 0 && problems[0].rate < 0.85 && (
-        <div className="animate-fade-up rounded-xl border border-accent/40 bg-accent/10 p-4">
+        <div className="animate-fade-up order-4 rounded-xl border border-accent/40 bg-accent/10 p-3 lg:order-none lg:col-span-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-accent-strong">
-              🎯 Nada yang paling sering meleset
+            <h2 className="text-xs font-semibold text-accent-strong">
+              🎯 Sering meleset
             </h2>
             <button
               onClick={() => {
@@ -288,39 +292,34 @@ export default function IntonasiPage() {
                 holdStart.current = null;
                 setHoldPct(0);
               }}
-              className="press rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-background hover:bg-accent-strong"
+              className="press rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-background hover:bg-accent-strong"
             >
-              Latih nada ini aja →
+              Latih ini →
             </button>
           </div>
           <ul className="mt-2 space-y-1">
             {problems.slice(0, 4).map((n) => (
               <li
                 key={n.midi}
-                className="flex items-center gap-3 rounded-lg bg-surface-2 p-2 text-xs"
+                className="flex items-center gap-2 rounded-lg bg-surface-2 px-2 py-1.5 text-[11px]"
               >
-                <span className="w-12 font-bold text-foreground">
-                  {midiToName(n.midi)}
+                <span className="w-9 font-bold text-foreground">
+                  {labelFor(n.midi, labelMode)}
                 </span>
                 <span className="flex-1 text-muted">
-                  kena {Math.round(n.rate * 100)}% dari {n.attempts} percobaan
+                  {Math.round(n.rate * 100)}% kena
                   {n.hits >= 3 && Math.abs(n.bias) > 6 && (
-                    <>
-                      {" · "}
-                      {n.bias > 0
-                        ? "cenderung KETINGGIAN — geser jari mundur"
-                        : "cenderung KERENDAHAN — geser jari maju"}
-                    </>
+                    <> · {n.bias > 0 ? "ketinggian" : "kerendahan"}</>
                   )}
                 </span>
-                <span className="font-mono text-muted">{fingerHint(n.midi)}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      {/* Pilihan set latihan */}
+      <div className="order-3 flex max-h-44 flex-wrap gap-1.5 overflow-y-auto rounded-xl border border-border-soft bg-surface p-3 lg:order-none lg:col-span-1">
         {customSet && (
           <button
             onClick={() => {
@@ -342,62 +341,59 @@ export default function IntonasiPage() {
               holdStart.current = null;
               setHoldPct(0);
             }}
-            className={`press rounded-full px-3 py-1.5 text-xs ${
+            className={`press rounded-full px-2.5 py-1 text-[11px] ${
               i === setIdx && !customSet
                 ? "bg-accent font-semibold text-background"
                 : "bg-surface-2 text-muted hover:text-foreground"
             }`}
           >
             {s.label}
-            {s.grade && (
-              <span className="ml-1.5 opacity-70">· {s.grade}</span>
-            )}
           </button>
         ))}
       </div>
 
       {/* Drone: nada dasar berkelanjutan. Nada meleset bakal berdenyut lawan
           drone — cara paling cepat ngelatih kuping yang belum kebentuk. */}
-      <div className="rounded-xl border border-border-soft bg-surface p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="order-5 rounded-xl border border-border-soft bg-surface p-3 lg:order-none lg:col-span-1">
+        <div className="space-y-2">
           <div>
-            <div className="text-sm font-medium">
+            <div className="text-xs font-medium">
               🎵 Drone nada dasar
               {drone.midi !== null && (
                 <span className="ml-2 text-accent-strong">
-                  bunyi: {midiToName(drone.midi)}
+                  bunyi {labelFor(drone.midi, labelMode)}
                 </span>
               )}
             </div>
-            <div className="mt-0.5 max-w-md text-xs text-muted">
-              Nada acuan yang dibunyikan terus. Kalau nada lu meleset dikit,
-              bakal kedengeran &quot;berdenyut&quot; lawan drone — jauh lebih
-              jelas daripada ngandelin jarum. Acuan A4 = {a4} Hz.
+            <div className="mt-0.5 text-[11px] text-muted">
+              Nada acuan yang dibunyiin terus. Nada lu yang meleset bakal
+              kedengeran berdenyut lawan drone — jauh lebih jelas daripada
+              ngandelin jarum. A4 = {a4} Hz.
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => drone.toggle(set.tonic)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              className={`press rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                 drone.midi === set.tonic
                   ? "bg-accent text-background"
                   : "bg-surface-2 text-foreground hover:bg-border-soft"
               }`}
             >
-              {drone.midi === set.tonic ? "■ stop" : "▶"} tonik{" "}
-              {midiToName(set.tonic)}
+              {drone.midi === set.tonic ? "■" : "▶"} tonik{" "}
+              {labelFor(set.tonic, labelMode)}
             </button>
             {[55, 62, 69, 76].map((m) => (
               <button
                 key={m}
                 onClick={() => drone.toggle(m)}
-                className={`rounded-full px-2.5 py-1.5 text-xs transition-colors ${
+                className={`press rounded-full px-2 py-1 text-[11px] ${
                   drone.midi === m
                     ? "bg-accent font-semibold text-background"
                     : "bg-surface-2 text-muted hover:text-foreground"
                 }`}
               >
-                {midiToName(m)}
+                {labelFor(m, labelMode)}
               </button>
             ))}
             <input
@@ -406,56 +402,61 @@ export default function IntonasiPage() {
               max={60}
               value={Math.round(drone.volume * 100)}
               onChange={(e) => drone.setVolume(Number(e.target.value) / 100)}
-              className="w-24 accent-[var(--accent)]"
+              className="w-20 accent-[var(--accent)]"
               aria-label="Volume drone"
             />
           </div>
+          {drone.playing && active && (
+            <div className="rounded-lg bg-surface-2 p-2 text-[11px] text-muted">
+              🎧 Lewat speaker, mic ikut denger drone-nya — nadanya otomatis
+              diabaikan. Tapi kalau nada targetnya sama persis dengan drone,
+              matiin dulu.
+            </div>
+          )}
         </div>
-        {drone.playing && active && (
-          <div className="mt-2 rounded-lg bg-surface-2 p-2 text-xs text-muted">
-            🎧 Pakai headphone kalau bisa. Lewat speaker, mic ikut denger
-            drone-nya — nada drone otomatis diabaikan penilaian, tapi kalau nada
-            targetnya sama persis dengan drone, matiin dulu drone-nya.
-          </div>
-        )}
       </div>
 
       {error && (
-        <div className="rounded-lg border border-bad/40 bg-bad/10 p-3 text-sm text-bad">
+        <div className="order-1 rounded-lg border border-bad/40 bg-bad/10 p-3 text-sm text-bad lg:order-none lg:col-span-3">
           {error}
         </div>
       )}
 
+      {/* Kotak utama — ini yang dipelototin sambil main, jadi paling besar */}
       <div
-        className={`rounded-2xl border p-6 text-center transition-colors ${
+        className={`order-2 rounded-2xl border p-4 text-center transition-colors lg:order-none lg:col-span-2 lg:row-span-2 ${
           flash === "hit"
-            ? "border-good bg-good/10"
+            ? "border-good bg-good/10 animate-glow-good"
             : "border-border-soft bg-surface"
         }`}
       >
-        <div className="mb-2 flex justify-center">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted">
+            Nada {noteIdx + 1}/{set.midis.length}
+          </span>
           <LabelSwitch compact />
         </div>
-        <div className="text-xs uppercase tracking-wide text-muted">
-          Nada target ({noteIdx + 1}/{set.midis.length}) — {set.hint}
-        </div>
-        <div className="my-3 text-7xl font-bold text-accent-strong">
+
+        {/* Nada target: tetap paling besar di halaman — ini yang dibaca dari
+            jarak main, sambil biola nempel di bahu. */}
+        <div className="my-1 text-7xl font-bold leading-none text-accent-strong">
           {labelFor(targetMidi, labelMode)}
         </div>
-        <div className="text-sm text-muted">
-          🖐️ {fingerHint(targetMidi)} · target {targetFreq.toFixed(1)} Hz
+        <div className="text-xs text-muted">
+          🖐️ {fingerHint(targetMidi)} · {targetFreq.toFixed(1)} Hz ·{" "}
+          <button
+            onClick={() => playTone(targetFreq, 1.5)}
+            disabled={active}
+            className="press underline-offset-2 hover:underline disabled:opacity-50"
+            title="Matiin mic dulu biar suara speaker gak ke-deteksi"
+          >
+            ▶ dengar contoh
+          </button>
         </div>
-        <button
-          onClick={() => playTone(targetFreq, 1.5)}
-          disabled={active}
-          className="mt-2 rounded-full bg-surface-2 px-4 py-1.5 text-sm text-foreground transition-colors hover:bg-border-soft disabled:opacity-50"
-          title="Matiin mic dulu biar suara speaker gak ke-deteksi"
-        >
-          ▶ Dengar contoh
-        </button>
+        <div className="mt-0.5 text-[11px] text-muted">{set.hint}</div>
 
         {/* Meteran cent relatif target */}
-        <div className="relative mx-auto mt-6 h-3 w-full max-w-md rounded-full bg-surface-2">
+        <div className="relative mx-auto mt-4 h-3 w-full max-w-md rounded-full bg-surface-2">
           <div className="absolute left-1/2 top-[-6px] h-6 w-0.5 -translate-x-1/2 bg-muted" />
           <div
             className="absolute top-0 h-3 rounded-full bg-good/25"
@@ -531,7 +532,7 @@ export default function IntonasiPage() {
         </div>
 
         {/* Pelatih gesekan: suara kekecilan/kegedean/cempreng + cara benerin */}
-        <div className="mt-4">
+        <div className="mt-3">
           <BowFeedback
             active={active}
             freq={freq}
@@ -544,10 +545,10 @@ export default function IntonasiPage() {
           />
         </div>
 
-        <div className="mt-5 flex items-center justify-center gap-3">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           <button
             onClick={active ? stop : start}
-            className={`rounded-full px-6 py-2.5 font-semibold transition-colors ${
+            className={`press rounded-full px-5 py-2 font-semibold ${
               active
                 ? "bg-surface-2 text-foreground hover:bg-border-soft"
                 : "bg-accent text-background hover:bg-accent-strong"
@@ -558,35 +559,38 @@ export default function IntonasiPage() {
           {active && (
             <button
               onClick={skip}
-              className="rounded-full bg-surface-2 px-4 py-2.5 text-sm text-muted transition-colors hover:text-foreground"
+              className="press rounded-full bg-surface-2 px-3 py-2 text-xs text-muted hover:text-foreground"
             >
-              Lewati nada ini →
+              Lewati →
             </button>
           )}
-        </div>
-
-        <div className="mt-4 text-sm text-muted">
-          Sesi ini: <span className="font-semibold text-good">{hits} kena</span>{" "}
-          dari {attempts} percobaan
+          <span className="text-xs text-muted">
+            <b className="text-good">{hits} kena</b> / {attempts}
+          </span>
         </div>
       </div>
 
-      <SessionEval report={report} onClose={clear} />
+      {/* Tips: dilipat, karena cuma dibaca sekali di awal — bukan tiap latihan */}
+      <details className="order-6 rounded-xl border border-border-soft bg-surface p-3 text-[11px] text-muted lg:order-none lg:col-span-1">
+        <summary className="cursor-pointer text-xs font-medium text-foreground">
+          💡 Cara benerin nada & gesekan
+        </summary>
+        <p className="mt-2">
+          <b className="text-foreground">Arah jari:</b> makin deket jembatan
+          (maju) = makin tinggi. Gesernya milimeteran, bukan senti. Kalau meleset
+          terus ke arah yang sama, tandain posisinya pakai tape.
+        </p>
+        <p className="mt-2">
+          <b className="text-foreground">Gesekan bener:</b> bow nempel senar pakai
+          berat lengan (bukan diteken), ±1 detik per arah, jalur bow di tengah
+          antara jembatan dan fingerboard. Kekecilan = tambah berat; cempreng =
+          pelanin dan longgarin tekanan.
+        </p>
+      </details>
 
-      <div className="space-y-2 rounded-xl border border-border-soft bg-surface p-4 text-xs text-muted">
-        <p>
-          💡 <b className="text-foreground">Arah jari:</b> makin DEKET jembatan
-          (maju) = makin TINGGI nadanya. Geser itu milimeteran, bukan senti.
-          Kalau meleset terus di arah yang sama, tandain posisi jarinya pakai
-          tape.
-        </p>
-        <p>
-          🎻 <b className="text-foreground">Gesekan yang bener:</b> bow nempel
-          senar dengan berat lengan (bukan diteken), kecepatan santai ±1 detik
-          per arah, jalur bow di tengah antara jembatan dan fingerboard, lurus
-          sejajar jembatan. Kekecilan = tambah berat + niatin gesekannya;
-          cempreng = pelanin dan longgarin tekanan.
-        </p>
+      <div className="order-7 lg:order-none lg:col-span-3">
+        <SessionEval report={report} onClose={clear} />
+      </div>
       </div>
     </div>
   );

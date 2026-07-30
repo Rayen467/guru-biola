@@ -67,7 +67,22 @@ export function listenFrames(stream: MediaStream): Listener {
   const source = ctx.createMediaStreamSource(stream);
   const analyser = ctx.createAnalyser();
   analyser.fftSize = FRAME;
-  source.connect(analyser);
+
+  // Saring sebelum dianalisis — sama seperti jalur berkas. Tanpa ini, bass dan
+  // bass drum merusak bentuk gelombang dan melodi yang jelas terdengar malah
+  // tidak terbaca sama sekali.
+  const hp1 = ctx.createBiquadFilter();
+  hp1.type = "highpass";
+  hp1.frequency.value = 170;
+  const hp2 = ctx.createBiquadFilter();
+  hp2.type = "highpass";
+  hp2.frequency.value = 170;
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  // 3,2 kHz, bukan 2 kHz: harmonik ke-3 harus ikut lolos, kalau tidak pelacak
+  // nada gampang salah tebak ke nada satu kuint di bawahnya.
+  lp.frequency.value = 3200;
+  source.connect(hp1).connect(hp2).connect(lp).connect(analyser);
 
   const detector = PitchDetector.forFloat32Array(FRAME);
   detector.minVolumeDecibels = -55;

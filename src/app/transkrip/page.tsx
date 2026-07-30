@@ -13,7 +13,7 @@ import { fingerHint, notesToSong, saveCustomSong } from "@/lib/songs";
 import {
   VIOLIN_HIGH,
   VIOLIN_LOW,
-  groupFrames,
+  finishFrames,
   guessBpm,
   quantize,
   transcribeBuffer,
@@ -59,6 +59,9 @@ export default function TranskripPage() {
   // Pembersih: buang not super pendek + luruskan nada nyasar ke tangga nada.
   const [minMs, setMinMs] = useState(120);
   const [snap, setSnap] = useState(true);
+  // Wilayah nada yang dianggap melodi. Bass dan bass drum ada di bawah 180 Hz
+  // dan cuma bikin pelacak nada bingung.
+  const [fokus, setFokus] = useState<"melodi" | "lebar">("melodi");
   const [mainIdx, setMainIdx] = useState(-1);
   const [memutar, setMemutar] = useState(false);
   const player = useRef(new MelodyPlayer());
@@ -96,7 +99,14 @@ export default function TranskripPage() {
       const ctx = new AudioContext();
       const audio = await ctx.decodeAudioData(buf);
       await ctx.close();
-      const hasil = await transcribeBuffer(audio, { onProgress: setProgress });
+      const hasil = await transcribeBuffer(audio, {
+        onProgress: setProgress,
+        loHz: fokus === "melodi" ? 180 : 120,
+        // Jangan dipotong terlalu rendah: pelacak nada butuh beberapa harmonik
+        // buat memastikan nada dasarnya. Kalau harmonik ke-3 ikut kebuang, dia
+        // gampang salah tebak ke nada satu kuint di bawahnya.
+        hiHz: fokus === "melodi" ? 3200 : 5000,
+      });
       setNotes(hasil);
       setBpm(guessBpm(hasil));
       setJudul(file.name.replace(/\.[^.]+$/, ""));
@@ -143,9 +153,9 @@ export default function TranskripPage() {
       if (!target) return;
       const frames = target.stop();
       setListener(null);
-      // Aturan penggabungannya persis sama dengan jalur berkas — satu fungsi,
-      // supaya perbaikan di satu tempat berlaku di dua-duanya.
-      const hasil = groupFrames(frames);
+      // Jalur pembersih yang sama persis dengan mode berkas: saring lompatan,
+      // koreksi setelan tuning rekaman, benerin lompat oktaf, baru gabung.
+      const hasil = finishFrames(frames);
       setNotes(hasil);
       setBpm(guessBpm(hasil));
       setAnalysis(
@@ -254,6 +264,27 @@ export default function TranskripPage() {
       <div className="rounded-2xl border border-border-soft bg-surface p-5">
         {mode === "berkas" ? (
           <div className="space-y-3 text-center">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="text-xs text-muted">Fokus:</span>
+              {(
+                [
+                  { v: "melodi" as const, label: "🎯 Melodi (buang bass & drum)" },
+                  { v: "lebar" as const, label: "🌐 Semua nada" },
+                ]
+              ).map((f) => (
+                <button
+                  key={f.v}
+                  onClick={() => setFokus(f.v)}
+                  className={`press rounded-full px-3 py-1.5 text-[11px] ${
+                    fokus === f.v
+                      ? "bg-accent font-semibold text-background"
+                      : "bg-surface-2 text-muted hover:text-foreground"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
             <input
               type="file"
               accept="audio/*"
@@ -543,18 +574,22 @@ function buildAnalysis(notes: RawNote[], durasiDetik: number): Analysis | null {
   const rentang = notes.map((n) => n.midi);
   const lo = Math.min(...rentang);
   const hi = Math.max(...rentang);
-  const rapi = notes.filter((n) => Math.abs(n.cents) <= 25).length;
-  const yakin = Math.round((rapi / notes.length) * 100);
+  // Keyakinan diukur dari seberapa DIAM nada di dalam tiap not, bukan dari
+  // seberapa dekat ke nada standar. Rekaman yang tuningnya beda tipis atau
+  // penyanyi bervibrato tetap benar notnya — yang bikin salah itu pelacak yang
+  // bingung antara beberapa suara, dan itu kelihatan dari sebarannya lebar.
+  const stabil = notes.filter((n) => n.spread <= 60).length;
+  const yakin = Math.round((stabil / notes.length) * 100);
   const perDetik = durasiDetik > 0 ? notes.length / durasiDetik : 0;
 
   const verdicts = [
     {
       icon: yakin >= 70 ? "✅" : "⚠️",
-      title: `${yakin}% not kebaca meyakinkan`,
+      title: `${yakin}% not nadanya mantap`,
       detail:
         yakin >= 70
-          ? "Nadanya jelas — hasil transkrip ini layak dipakai latihan."
-          : "Banyak nada yang ragu-ragu. Biasanya karena lagunya rame atau suaranya jauh dari mic. Anggap hasilnya draf, bukan partitur.",
+          ? "Nadanya diam dan jelas — hasil transkrip ini layak dipakai latihan."
+          : "Banyak not yang nadanya goyang. Itu tanda pelacaknya lagi berebut antara beberapa suara — hampir selalu karena lagunya rame (drum + bass + vokal + gitar bareng). Alat ini cuma bisa ngikutin SATU nada; pakai bagian solo, atau lagu yang sepi.",
       tone: (yakin >= 70 ? "good" : "warn") as "good" | "warn",
     },
     {

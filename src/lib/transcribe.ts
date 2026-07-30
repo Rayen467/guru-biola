@@ -22,7 +22,11 @@ export interface RawNote {
   midi: number;
   startMs: number;
   durMs: number;
-  cents: number; // rata-rata simpangan dari nada pas — penanda seberapa yakin
+  cents: number; // simpangan dari nada pas
+  // Sebaran nada DI DALAM not ini (cent). Ini penanda keyakinan yang jujur:
+  // not yang sungguhan bunyi punya nada yang diam; yang sebarannya lebar
+  // biasanya bukan not, cuma pelacak yang lagi bingung antara beberapa suara.
+  spread: number;
 }
 
 export interface TranscribeOptions {
@@ -30,11 +34,18 @@ export interface TranscribeOptions {
   liftToViolinRange?: boolean;
   minNoteMs?: number;
   onProgress?: (pct: number) => void;
+  // Batas frekuensi yang dianggap "melodi". Bass dan drum di bawah 180 Hz
+  // cuma bikin pelacak nada bingung; suara desis di atas 1,6 kHz juga.
+  loHz?: number;
+  hiHz?: number;
 }
 
 const FRAME = 2048; // ~46 ms @44.1k — cukup rapat buat nada pendek
 const HOP = 512; // ~12 ms geser
-const CLARITY_MIN = 0.86;
+// Setelah audionya disaring dulu (lihat filterBuffer), kejernihan naik sendiri
+// — jadi ambang ini gak perlu digalakin. Menaikkannya tanpa menyaring audio
+// justru bikin semua nada dibuang begitu ada bass ikut bunyi.
+const CLARITY_MIN = 0.87;
 const SAME_NOTE_CENTS = 55;
 
 export const VIOLIN_LOW = 55; // G3
@@ -58,14 +69,59 @@ function toMono(buffer: AudioBuffer): Float32Array {
   return out;
 }
 
+// Saring audionya DULU, sebelum dianalisis.
+//
+// Ini pembeda terbesar pada rekaman sungguhan. Membatasi hasil deteksi saja
+// tidak cukup: bass dan bass drum tetap ikut masuk ke gelombang, merusak
+// bentuknya, dan pelacak nada langsung kehilangan kejernihan — akibatnya
+// melodi yang jelas-jelas terdengar malah tidak terbaca sama sekali.
+// Dua highpass dirangkai (12 dB/okt tiap biji) karena satu biji terlalu landai
+// untuk membuang bass yang jauh lebih keras dari melodinya.
+async function filterBuffer(
+  buffer: AudioBuffer,
+  loHz: number,
+  hiHz: number
+): Promise<AudioBuffer> {
+  const off = new OfflineAudioContext(1, buffer.length, buffer.sampleRate);
+  const src = off.createBufferSource();
+  src.buffer = buffer;
+
+  const hp1 = off.createBiquadFilter();
+  hp1.type = "highpass";
+  hp1.frequency.value = loHz;
+  const hp2 = off.createBiquadFilter();
+  hp2.type = "highpass";
+  hp2.frequency.value = loHz;
+  const lp = off.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = hiHz;
+
+  src.connect(hp1).connect(hp2).connect(lp).connect(off.destination);
+  src.start();
+  return off.startRendering();
+}
+
 // Deteksi nada per frame → gabung frame yang nadanya sama jadi satu not.
 export async function transcribeBuffer(
   buffer: AudioBuffer,
   opts: TranscribeOptions = {}
 ): Promise<RawNote[]> {
-  const { liftToViolinRange = true, minNoteMs = 90, onProgress } = opts;
+  const {
+    liftToViolinRange = true,
+    minNoteMs = 90,
+    onProgress,
+    loHz = 150,
+    hiHz = 3200,
+  } = opts;
   const sr = buffer.sampleRate;
-  const mono = toMono(buffer);
+  // Disaring dulu; kalau browser-nya gagal merender offline, pakai apa adanya.
+  let kerja = buffer;
+  try {
+    kerja = await filterBuffer(buffer, loHz, hiHz);
+  } catch {
+    kerja = buffer;
+  }
+  const mono = toMono(kerja);
   const detector = PitchDetector.forFloat32Array(FRAME);
   detector.minVolumeDecibels = -55;
   const frame = new Float32Array(FRAME);
@@ -76,7 +132,7 @@ export async function transcribeBuffer(
   for (let i = 0, f = 0; i + FRAME < mono.length; i += HOP, f++) {
     frame.set(mono.subarray(i, i + FRAME));
     const [pitch, clarity] = detector.findPitch(frame, sr);
-    const ok = clarity > CLARITY_MIN && pitch > 60 && pitch < 3000;
+    const ok = clarity > CLARITY_MIN && pitch > loHz && pitch < hiHz;
     frames.push({ t: (i / sr) * 1000, midi: ok ? midiOf(pitch) : null });
 
     // Analisis panjang bisa bikin halaman beku; kasih napas tiap 200 frame.
@@ -86,7 +142,79 @@ export async function transcribeBuffer(
     }
   }
   onProgress?.(100);
-  return groupFrames(frames, minNoteMs, liftToViolinRange);
+  return finishFrames(frames, minNoteMs, liftToViolinRange);
+}
+
+// Tiga pembersih yang dijalankan sebelum frame digabung jadi not. Ini yang
+// paling menentukan bagus-tidaknya hasil pada rekaman sungguhan.
+export function finishFrames(
+  frames: Frame[],
+  minNoteMs = 90,
+  lift = true
+): RawNote[] {
+  const halus = medianFilter(frames, 5);
+  const offset = estimateTuningOffset(halus);
+  // Rekaman jarang tepat di A=440: bisa 442, bisa kaset/vinyl yang kecepatannya
+  // meleset, bisa penyanyi yang memang agak tinggi. Kalau tidak dikoreksi,
+  // SEMUA not dinilai meleset padahal saling selaras satu sama lain.
+  const dikoreksi = halus.map((f) => ({
+    t: f.t,
+    midi: f.midi === null ? null : f.midi - offset,
+  }));
+  return fixOctaveJumps(groupFrames(dikoreksi, minNoteMs, lift));
+}
+
+export interface Frame {
+  t: number;
+  midi: number | null;
+}
+
+// Buang lompatan satu-dua frame. Pelacak nada sesekali salah baca satu frame;
+// tanpa saringan ini, satu frame nyasar bisa memotong satu not jadi tiga.
+function medianFilter(frames: Frame[], win: number): Frame[] {
+  const half = Math.floor(win / 2);
+  return frames.map((f, i) => {
+    if (f.midi === null) return f;
+    const sekitar: number[] = [];
+    for (let k = Math.max(0, i - half); k <= Math.min(frames.length - 1, i + half); k++) {
+      const m = frames[k].midi;
+      if (m !== null) sekitar.push(m);
+    }
+    if (sekitar.length < 3) return f;
+    sekitar.sort((a, b) => a - b);
+    return { t: f.t, midi: sekitar[Math.floor(sekitar.length / 2)] };
+  });
+}
+
+// Seberapa jauh keseluruhan rekaman meleset dari nada standar, dalam satuan
+// semitone (mis. 0,08 = 8 cent lebih tinggi). Diambil dari MEDIAN simpangan
+// semua frame terhadap nada terdekat — median tahan terhadap not-not nyasar.
+export function estimateTuningOffset(frames: Frame[]): number {
+  const simpangan: number[] = [];
+  for (const f of frames) {
+    if (f.midi === null) continue;
+    const d = f.midi - Math.round(f.midi);
+    simpangan.push(d);
+  }
+  if (simpangan.length < 20) return 0;
+  simpangan.sort((a, b) => a - b);
+  return simpangan[Math.floor(simpangan.length / 2)];
+}
+
+// Pelacak nada gampang salah oktaf: satu not tiba-tiba melompat 12 semitone
+// padahal tetangganya di oktaf yang sama. Not seperti itu ditarik balik.
+export function fixOctaveJumps(notes: RawNote[]): RawNote[] {
+  if (notes.length < 3) return notes;
+  const semua = notes.map((n) => n.midi).sort((a, b) => a - b);
+  const tengah = semua[Math.floor(semua.length / 2)];
+  return notes.map((n) => {
+    let midi = n.midi;
+    // Tarik ke oktaf yang paling dekat dengan pusat melodi, tapi hanya kalau
+    // jaraknya memang kelipatan oktaf — jangan mengubah nada yang beneran beda.
+    while (midi - tengah > 12) midi -= 12;
+    while (tengah - midi > 12) midi += 12;
+    return { ...n, midi };
+  });
 }
 
 function median(vals: number[]): number {
@@ -113,11 +241,16 @@ export function groupFrames(
       const mid = sorted[Math.floor(sorted.length / 2)];
       let midi = Math.round(mid);
       const cents = Math.round((mid - midi) * 100);
+      // Sebaran diambil dari persentil 10-90, bukan min-max: satu frame nyasar
+      // di ujung tidak boleh bikin not yang stabil kelihatan berantakan.
+      const p10 = sorted[Math.floor(sorted.length * 0.1)];
+      const p90 = sorted[Math.floor(sorted.length * 0.9)];
+      const spread = Math.round((p90 - p10) * 100);
       if (lift) {
         while (midi < VIOLIN_LOW) midi += 12;
         while (midi > VIOLIN_HIGH) midi -= 12;
       }
-      notes.push({ midi, startMs: cur.start, durMs: dur, cents });
+      notes.push({ midi, startMs: cur.start, durMs: dur, cents, spread });
     }
     cur = null;
   };
