@@ -21,6 +21,8 @@ import {
 } from "@/lib/transcribe";
 import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 import Staff from "@/components/Staff";
+import LabelSwitch from "@/components/LabelSwitch";
+import { labelFor, useLabelMode } from "@/lib/noteLabel";
 import {
   KEY_NAMES,
   MelodyPlayer,
@@ -60,6 +62,7 @@ export default function TranskripPage() {
   const [mainIdx, setMainIdx] = useState(-1);
   const [memutar, setMemutar] = useState(false);
   const player = useRef(new MelodyPlayer());
+  const labelMode = useLabelMode();
 
   useEffect(() => {
     const p = player.current;
@@ -401,9 +404,13 @@ export default function TranskripPage() {
 
           {/* Not balok — jauh lebih kebaca daripada deretan nama nada */}
           <div className="overflow-x-auto rounded-lg bg-surface-2 p-2">
+            <div className="mb-1 flex justify-end px-1">
+              <LabelSwitch compact />
+            </div>
             <Staff
               notes={quantize(tampil.slice(0, 64), bpm)}
               current={mainIdx < 64 ? mainIdx : -1}
+              labels={tampil.slice(0, 64).map((n) => labelFor(n.midi, labelMode))}
             />
             {tampil.length > 64 && (
               <p className="px-2 pb-1 text-[11px] text-muted">
@@ -478,7 +485,7 @@ export default function TranskripPage() {
                     i === mainIdx ? "bg-accent text-background" : "bg-surface"
                   }`}
                 >
-                  {midiToName(n.midi)}
+                  {labelFor(n.midi, labelMode)}
                 </span>
               ))}
             </div>

@@ -21,6 +21,8 @@ import {
 } from "@/lib/progress";
 import { fingerHint } from "@/lib/songs";
 import BowFeedback from "@/components/BowFeedback";
+import LabelSwitch from "@/components/LabelSwitch";
+import { labelFor, useLabelMode } from "@/lib/noteLabel";
 import SessionEval from "@/components/SessionEval";
 import { useSessionEval } from "@/lib/sessionEval";
 
@@ -136,6 +138,7 @@ export default function IntonasiPage() {
   } = usePitch({ sensitivity });
   const drone = useDrone();
   const a4 = useA4();
+  const labelMode = useLabelMode();
 
   useEffect(() => {
     setProblems(problemNotes(loadProgress()));
@@ -430,11 +433,14 @@ export default function IntonasiPage() {
             : "border-border-soft bg-surface"
         }`}
       >
+        <div className="mb-2 flex justify-center">
+          <LabelSwitch compact />
+        </div>
         <div className="text-xs uppercase tracking-wide text-muted">
           Nada target ({noteIdx + 1}/{set.midis.length}) — {set.hint}
         </div>
         <div className="my-3 text-7xl font-bold text-accent-strong">
-          {midiToName(targetMidi)}
+          {labelFor(targetMidi, labelMode)}
         </div>
         <div className="text-sm text-muted">
           🖐️ {fingerHint(targetMidi)} · target {targetFreq.toFixed(1)} Hz

@@ -17,6 +17,8 @@ import {
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
 import Confetti from "@/components/Confetti";
+import LabelSwitch from "@/components/LabelSwitch";
+import { labelFor, useLabelMode } from "@/lib/noteLabel";
 import { useSessionEval } from "@/lib/sessionEval";
 
 // Mode Lagu: ikutin deretan nada pakai biola beneran.
@@ -51,6 +53,7 @@ export default function LaguPage() {
     reason,
   });
   const [songIdx, setSongIdx] = useState(0);
+  const labelMode = useLabelMode();
   // Lagu hasil transkrip sendiri ikut nimbrung di daftar, tapi ditandai —
   // hasil dengar-sendiri bisa meleset, jangan sampai dikira materi resmi.
   const [customSongs, setCustomSongs] = useState<Song[]>([]);
@@ -261,6 +264,9 @@ export default function LaguPage() {
 
       <div className="relative rounded-2xl border border-border-soft bg-surface p-5">
         <Confetti trigger={finished} />
+        <div className="mb-2 flex justify-end">
+          <LabelSwitch compact />
+        </div>
         <div className="mb-1 flex items-baseline justify-between">
           <div>
             <span className="font-semibold">{song.title}</span>
@@ -335,7 +341,7 @@ export default function LaguPage() {
                 Target sekarang
               </div>
               <div className="my-1 text-5xl font-bold text-accent-strong">
-                {target ? midiToName(target.midi) : "—"}
+                {target ? labelFor(target.midi, labelMode) : "—"}
               </div>
               <div className="text-xs text-muted">
                 {target ? fingerHint(target.midi) : ""}

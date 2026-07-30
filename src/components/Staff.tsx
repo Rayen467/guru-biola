@@ -29,11 +29,15 @@ export default function Staff({
   current = -1,
   done = -1,
   perRow = 8,
+  labels,
 }: {
   notes: StaffNote[];
   current?: number; // indeks not yang sedang dimainkan
   done?: number; // indeks terakhir yang sudah benar
   perRow?: number;
+  // Tulisan kecil di bawah tiap not (mis. "A2" = senar A jari 2). Buat yang
+  // belum hafal nama nada, ini yang bikin partitur bisa langsung dimainkan.
+  labels?: string[];
 }) {
   const rows: StaffNote[][] = [];
   for (let i = 0; i < notes.length; i += perRow) {
@@ -50,6 +54,7 @@ export default function Staff({
           current={current}
           done={done}
           perRow={perRow}
+          labels={labels}
         />
       ))}
     </div>
@@ -62,12 +67,14 @@ function StaffRow({
   current,
   done,
   perRow,
+  labels,
 }: {
   notes: StaffNote[];
   offset: number;
   current: number;
   done: number;
   perRow: number;
+  labels?: string[];
 }) {
   const gap = 14;
   const half = gap / 2;
@@ -178,6 +185,18 @@ function StaffRow({
                 strokeWidth="1.5"
                 className="ping-once"
               />
+            )}
+            {labels?.[idx] && (
+              <text
+                x={x}
+                y={H - 8}
+                fontSize={13}
+                fontWeight={aktif ? 700 : 500}
+                fill={aktif ? "var(--accent-strong)" : "var(--muted)"}
+                textAnchor="middle"
+              >
+                {labels[idx]}
+              </text>
             )}
           </g>
         );

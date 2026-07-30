@@ -15,6 +15,8 @@ import {
 } from "@/lib/songs";
 import Staff from "@/components/Staff";
 import Confetti from "@/components/Confetti";
+import LabelSwitch from "@/components/LabelSwitch";
+import { labelFor, labelHint, useLabelMode } from "@/lib/noteLabel";
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
 import { useSessionEval } from "@/lib/sessionEval";
@@ -54,6 +56,7 @@ export default function PartiturPage() {
   const [done, setDone] = useState(false);
   const [holdPct, setHoldPct] = useState(0);
   const [showNames, setShowNames] = useState(false);
+  const labelMode = useLabelMode();
   const holdStart = useRef<number | null>(null);
   const lastHit = useRef<number | null>(null);
   const rearmed = useRef(true);
@@ -167,15 +170,28 @@ export default function PartiturPage() {
           </div>
         </div>
 
+        <div className="mb-2 flex justify-end">
+          <LabelSwitch />
+        </div>
+
         <div className="overflow-x-auto">
-          <Staff notes={flat} current={active && !done ? noteIdx : -1} done={noteIdx - 1} />
+          <Staff
+            notes={flat}
+            current={active && !done ? noteIdx : -1}
+            done={noteIdx - 1}
+            labels={flat.map((n) => labelFor(n.midi, labelMode))}
+          />
         </div>
 
         {/* Bantuan: nama nada + jari. Dimatikan begitu udah lancar. */}
         {showNames && target && (
           <div className="mt-2 text-center text-sm">
-            <b className="text-accent-strong">{midiToName(target.midi)}</b>{" "}
-            <span className="text-muted">· {fingerHint(target.midi)}</span>
+            <b className="text-accent-strong">
+              {labelFor(target.midi, labelMode)}
+            </b>{" "}
+            <span className="text-muted">
+              · {labelHint(target.midi, labelMode)}
+            </span>
           </div>
         )}
 

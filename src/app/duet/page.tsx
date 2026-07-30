@@ -20,6 +20,8 @@ import {
 } from "@/lib/accompaniment";
 import Staff from "@/components/Staff";
 import Confetti from "@/components/Confetti";
+import LabelSwitch from "@/components/LabelSwitch";
+import { labelFor, labelHint, useLabelMode } from "@/lib/noteLabel";
 import BowFeedback from "@/components/BowFeedback";
 import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 
@@ -68,6 +70,7 @@ export default function DuetPage() {
   const [late, setLate] = useState(0);
   const [done, setDone] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const labelMode = useLabelMode();
 
   const band = useRef(new Accompanist());
   const timer = useRef(0);
@@ -240,8 +243,17 @@ export default function DuetPage() {
           </div>
         </div>
 
+        <div className="mb-2 flex justify-end">
+          <LabelSwitch />
+        </div>
+
         <div className="overflow-x-auto">
-          <Staff notes={flat} current={playing ? noteIdx : -1} done={noteIdx - 1} />
+          <Staff
+            notes={flat}
+            current={playing ? noteIdx : -1}
+            done={noteIdx - 1}
+            labels={flat.map((n) => labelFor(n.midi, labelMode))}
+          />
         </div>
 
         {/* Denyut bar iringan */}
@@ -269,8 +281,12 @@ export default function DuetPage() {
             <span className="text-muted">🎹 (itu suara iringan — diabaikan)</span>
           ) : target ? (
             <span>
-              <b className="text-accent-strong">{midiToName(target.midi)}</b>{" "}
-              <span className="text-muted">· {fingerHint(target.midi)}</span>
+              <b className="text-accent-strong">
+                {labelFor(target.midi, labelMode)}
+              </b>{" "}
+              <span className="text-muted">
+                · {labelHint(target.midi, labelMode)}
+              </span>
               {onTarget && <b className="ml-2 text-good">KENA ✓</b>}
             </span>
           ) : null}
