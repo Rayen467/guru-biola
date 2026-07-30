@@ -30,6 +30,8 @@ export default function Staff({
   done = -1,
   perRow = 8,
   labels,
+  bowMarks,
+  dyns,
 }: {
   notes: StaffNote[];
   current?: number; // indeks not yang sedang dimainkan
@@ -38,6 +40,12 @@ export default function Staff({
   // Tulisan kecil di bawah tiap not (mis. "A2" = senar A jari 2). Buat yang
   // belum hafal nama nada, ini yang bikin partitur bisa langsung dimainkan.
   labels?: string[];
+  // Tanda arah bow di ATAS not: ⊓ turun, V naik. Posisinya di atas memang
+  // aturan notasi sungguhan, bukan pilihan gaya.
+  bowMarks?: string[];
+  // Dinamika (p, mf, f) — ditulis sekali saat berubah, bukan di tiap not,
+  // persis seperti di partitur cetak.
+  dyns?: (string | null)[];
 }) {
   const rows: StaffNote[][] = [];
   for (let i = 0; i < notes.length; i += perRow) {
@@ -55,6 +63,8 @@ export default function Staff({
           done={done}
           perRow={perRow}
           labels={labels}
+          bowMarks={bowMarks}
+          dyns={dyns}
         />
       ))}
     </div>
@@ -68,6 +78,8 @@ function StaffRow({
   done,
   perRow,
   labels,
+  bowMarks,
+  dyns,
 }: {
   notes: StaffNote[];
   offset: number;
@@ -75,11 +87,24 @@ function StaffRow({
   done: number;
   perRow: number;
   labels?: string[];
+  bowMarks?: string[];
+  dyns?: (string | null)[];
 }) {
+  // Tinggi dan posisi dihitung sebagai PITA yang tidak boleh saling masuk:
+  //   atas   : tanda arah bow
+  //   tengah : paranada + garis bantu + tangkai not
+  //   bawah  : dinamika, lalu label nada
+  // Sebelumnya semuanya dijejalkan ke 150px, jadi not rendah dan tangkainya
+  // menabrak tulisan di bawah — persis yang kelihatan berantakan di layar.
   const gap = 14;
   const half = gap / 2;
-  const H = 150;
-  const bottomY = H / 2 + gap * 2;
+  const TOP_BAND = 30; // ruang buat tanda bow
+  const STAFF_H = gap * 4;
+  const bottomY = TOP_BAND + STAFF_H;
+  const BELOW = 52; // ruang buat garis bantu + tangkai ke bawah
+  const DYN_Y = bottomY + BELOW + 14;
+  const LABEL_Y = DYN_Y + 20;
+  const H = LABEL_Y + 8;
   const left = 46;
   const step = 74;
   const W = left + perRow * step + 20;
@@ -152,8 +177,10 @@ function StaffRow({
                 strokeWidth="1.3"
               />
             ))}
+            {/* Tanda kres digeser cukup dekat: kalau terlalu jauh ke kiri, dia
+                masuk ke wilayah not sebelumnya. */}
             {sharp && (
-              <text x={x - 22} y={y + 4} fontSize={17} fill={warna} textAnchor="middle">
+              <text x={x - 16} y={y + 4} fontSize={15} fill={warna} textAnchor="middle">
                 ♯
               </text>
             )}
@@ -167,11 +194,17 @@ function StaffRow({
               strokeWidth={hollow ? 2 : 0}
               transform={`rotate(-20 ${x} ${y})`}
             />
+            {/* Tangkai dipotong supaya tidak pernah masuk ke pita tulisan di
+                bawah maupun ke tanda bow di atas. */}
             <line
               x1={stemUp ? x + 7 : x - 7}
               y1={y}
               x2={stemUp ? x + 7 : x - 7}
-              y2={stemUp ? y - 38 : y + 38}
+              y2={
+                stemUp
+                  ? Math.max(TOP_BAND - 4, y - 38)
+                  : Math.min(bottomY + BELOW - 6, y + 38)
+              }
               stroke={warna}
               strokeWidth={1.8}
             />
@@ -189,13 +222,38 @@ function StaffRow({
             {labels?.[idx] && (
               <text
                 x={x}
-                y={H - 8}
+                y={LABEL_Y}
                 fontSize={13}
                 fontWeight={aktif ? 700 : 500}
                 fill={aktif ? "var(--accent-strong)" : "var(--muted)"}
                 textAnchor="middle"
               >
                 {labels[idx]}
+              </text>
+            )}
+            {bowMarks?.[idx] && (
+              <text
+                x={x}
+                y={TOP_BAND - 12}
+                fontSize={14}
+                fontWeight={700}
+                fill={aktif ? "var(--accent-strong)" : "var(--muted)"}
+                textAnchor="middle"
+              >
+                {bowMarks[idx]}
+              </text>
+            )}
+            {dyns?.[idx] && (
+              <text
+                x={x}
+                y={DYN_Y}
+                fontSize={14}
+                fontStyle="italic"
+                fontWeight={700}
+                fill="var(--accent)"
+                textAnchor="middle"
+              >
+                {dyns[idx]}
               </text>
             )}
           </g>

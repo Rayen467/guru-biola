@@ -17,6 +17,15 @@ import Staff from "@/components/Staff";
 import Confetti from "@/components/Confetti";
 import LabelSwitch from "@/components/LabelSwitch";
 import { labelFor, labelHint, useLabelMode } from "@/lib/noteLabel";
+import {
+  BOW_MARK,
+  bowDirections,
+  bowUse,
+  dynFeedback,
+  getDynOffset,
+  setDynOffset,
+  type Dyn,
+} from "@/lib/dynamics";
 import BowFeedback from "@/components/BowFeedback";
 import SessionEval from "@/components/SessionEval";
 import { useSessionEval } from "@/lib/sessionEval";
@@ -57,6 +66,10 @@ export default function PartiturPage() {
   const [holdPct, setHoldPct] = useState(0);
   const [showNames, setShowNames] = useState(false);
   const labelMode = useLabelMode();
+  // Dinamika: kalau lagunya belum punya tanda, dianggap mf (sedang) —
+  // sama seperti latihan tanpa tanda apa pun di buku pemula.
+  const [dynOffset, setDynOffsetState] = useState(0);
+  useEffect(() => setDynOffsetState(getDynOffset()), []);
   const holdStart = useRef<number | null>(null);
   const lastHit = useRef<number | null>(null);
   const rearmed = useRef(true);

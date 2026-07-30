@@ -15,6 +15,13 @@ export interface PlayNote {
   beats: number;
 }
 
+// Not dengan waktu SEBENARNYA dari rekaman: kapan mulai, berapa lama.
+export interface TimedNote {
+  midi: number;
+  startMs: number;
+  durMs: number;
+}
+
 export class MelodyPlayer {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -67,6 +74,59 @@ export class MelodyPlayer {
           this.stop();
         },
         Math.max(0, (t - ctx.currentTime) * 1000) + 200
+      )
+    );
+  }
+
+  // Putar pakai waktu asli hasil deteksi — termasuk JEDA antar not.
+  //
+  // Versi sebelumnya memutar not berurutan tanpa jeda: durasi tiap not dipakai,
+  // tapi diamnya dibuang. Akibatnya lagu yang aslinya bernapas jadi terdengar
+  // diburu-buru dan tidak nyambung dengan lagunya — persis keluhan "kayak 2x
+  // dipercepat". Di sini tiap not dijadwalkan di detik miliknya sendiri, jadi
+  // yang terdengar sama persis dengan yang terbaca.
+  playTimed(
+    notes: TimedNote[],
+    opts: { onNote?: (i: number) => void; onEnd?: () => void; volume?: number } = {}
+  ) {
+    this.stop();
+    if (notes.length === 0) return;
+    const ctx = new AudioContext();
+    this.ctx = ctx;
+    this.onTick = opts.onNote ?? null;
+
+    const master = ctx.createGain();
+    master.gain.value = opts.volume ?? 0.35;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 3200;
+    master.connect(lp).connect(ctx.destination);
+    this.master = master;
+
+    // Semua waktu digeser supaya not pertama mulai segera, bukan menunggu
+    // sepanjang keheningan di awal rekaman.
+    const t0 = notes[0].startMs;
+    const mulai = ctx.currentTime + 0.08;
+    let akhir = mulai;
+
+    notes.forEach((n, i) => {
+      const at = mulai + (n.startMs - t0) / 1000;
+      const dur = Math.max(0.08, n.durMs / 1000);
+      this.voice(ctx, master, n.midi, at, dur);
+      akhir = Math.max(akhir, at + dur);
+      this.timers.push(
+        window.setTimeout(() => this.onTick?.(i), Math.max(0, (at - ctx.currentTime) * 1000))
+      );
+    });
+
+    this.stopAt = akhir;
+    this.timers.push(
+      window.setTimeout(
+        () => {
+          opts.onEnd?.();
+          this.stop();
+        },
+        Math.max(0, (akhir - ctx.currentTime) * 1000) + 250
       )
     );
   }

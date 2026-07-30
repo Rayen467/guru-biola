@@ -4,6 +4,10 @@
 export interface SongNote {
   midi: number;
   beats: number; // panjang relatif, buat preview playback
+  // Dinamika di not ini (p, mf, f…). Cuma diisi kalau BERUBAH dari not
+  // sebelumnya — sama seperti partitur cetak, tandanya ditulis sekali lalu
+  // berlaku terus sampai ada tanda baru.
+  dyn?: string;
 }
 
 export interface Song {
@@ -48,12 +52,18 @@ export function deleteCustomSong(id: string) {
 export function notesToSong(
   id: string,
   title: string,
-  notes: { midi: number; beats: number }[],
+  notes: { midi: number; beats: number; dyn?: string }[],
   desc: string
 ): Song {
   const phrases: SongNote[][] = [];
   for (let i = 0; i < notes.length; i += 8) {
-    phrases.push(notes.slice(i, i + 8).map((x) => ({ midi: x.midi, beats: x.beats })));
+    phrases.push(
+      notes.slice(i, i + 8).map((x) => ({
+        midi: x.midi,
+        beats: x.beats,
+        ...(x.dyn ? { dyn: x.dyn } : {}),
+      }))
+    );
   }
   return { id, title, desc, level: "Hasil transkrip", phrases };
 }

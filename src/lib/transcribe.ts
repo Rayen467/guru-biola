@@ -27,6 +27,10 @@ export interface RawNote {
   // not yang sungguhan bunyi punya nada yang diam; yang sebarannya lebar
   // biasanya bukan not, cuma pelacak yang lagi bingung antara beberapa suara.
   spread: number;
+  // Volume rata-rata not ini (dB RMS). Dari sini dinamika (p/mf/f) hasil
+  // transkrip diambil — jadi bagian lagu yang memang direkam lembut tertulis
+  // lembut, bukan ditebak.
+  db: number;
 }
 
 export interface TranscribeOptions {
@@ -126,14 +130,21 @@ export async function transcribeBuffer(
   detector.minVolumeDecibels = -55;
   const frame = new Float32Array(FRAME);
 
-  const frames: { t: number; midi: number | null }[] = [];
+  const frames: Frame[] = [];
   const total = Math.max(1, Math.floor((mono.length - FRAME) / HOP));
 
   for (let i = 0, f = 0; i + FRAME < mono.length; i += HOP, f++) {
     frame.set(mono.subarray(i, i + FRAME));
     const [pitch, clarity] = detector.findPitch(frame, sr);
     const ok = clarity > CLARITY_MIN && pitch > loHz && pitch < hiHz;
-    frames.push({ t: (i / sr) * 1000, midi: ok ? midiOf(pitch) : null });
+    let sq = 0;
+    for (let k = 0; k < FRAME; k++) sq += frame[k] * frame[k];
+    const rms = Math.sqrt(sq / FRAME);
+    frames.push({
+      t: (i / sr) * 1000,
+      midi: ok ? midiOf(pitch) : null,
+      db: rms > 0 ? Math.max(-100, 20 * Math.log10(rms)) : -100,
+    });
 
     // Analisis panjang bisa bikin halaman beku; kasih napas tiap 200 frame.
     if (f % 200 === 0) {
@@ -167,6 +178,7 @@ export function finishFrames(
 export interface Frame {
   t: number;
   midi: number | null;
+  db?: number;
 }
 
 // Buang lompatan satu-dua frame. Pelacak nada sesekali salah baca satu frame;
@@ -225,12 +237,17 @@ function median(vals: number[]): number {
 // Gabung frame jadi not. Dipakai bareng oleh jalur berkas dan jalur mic —
 // kalau ditulis dua kali, salah satunya pasti ketinggalan perbaikan.
 export function groupFrames(
-  frames: { t: number; midi: number | null }[],
+  frames: Frame[],
   minNoteMs = 90,
   lift = true
 ): RawNote[] {
   const notes: RawNote[] = [];
-  let cur: { start: number; last: number; vals: number[] } | null = null;
+  let cur: {
+    start: number;
+    last: number;
+    vals: number[];
+    dbs: number[];
+  } | null = null;
 
   const flush = (endT: number) => {
     if (!cur) return;
@@ -250,7 +267,18 @@ export function groupFrames(
         while (midi < VIOLIN_LOW) midi += 12;
         while (midi > VIOLIN_HIGH) midi -= 12;
       }
-      notes.push({ midi, startMs: cur.start, durMs: dur, cents, spread });
+      const db =
+        cur.dbs.length > 0
+          ? cur.dbs.reduce((a, b) => a + b, 0) / cur.dbs.length
+          : -100;
+      notes.push({
+        midi,
+        startMs: cur.start,
+        durMs: dur,
+        cents,
+        spread,
+        db: Math.round(db),
+      });
     }
     cur = null;
   };
@@ -262,7 +290,7 @@ export function groupFrames(
       continue;
     }
     if (!cur) {
-      cur = { start: f.t, last: f.t, vals: [f.midi] };
+      cur = { start: f.t, last: f.t, vals: [f.midi], dbs: [f.db ?? -100] };
       continue;
     }
     // Dibandingkan ke MEDIAN grup, bukan ke frame terakhir. Kalau dibandingkan
@@ -272,9 +300,10 @@ export function groupFrames(
     const diffCents = Math.abs((f.midi - ref) * 100);
     if (diffCents > SAME_NOTE_CENTS) {
       flush(f.t);
-      cur = { start: f.t, last: f.t, vals: [f.midi] };
+      cur = { start: f.t, last: f.t, vals: [f.midi], dbs: [f.db ?? -100] };
     } else {
       cur.vals.push(f.midi);
+      cur.dbs.push(f.db ?? -100);
       cur.last = f.t;
     }
   }

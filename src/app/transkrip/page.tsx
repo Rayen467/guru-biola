@@ -64,6 +64,9 @@ export default function TranskripPage() {
   const [fokus, setFokus] = useState<"melodi" | "lebar">("melodi");
   const [mainIdx, setMainIdx] = useState(-1);
   const [memutar, setMemutar] = useState(false);
+  // Bawaannya waktu asli: yang didengar harus sama persis dengan yang terdeteksi.
+  // Versi rapi (dibulatkan ke ketukan) buat latihan, bukan buat memeriksa hasil.
+  const [pakaiWaktuAsli, setPakaiWaktuAsli] = useState(true);
   const player = useRef(new MelodyPlayer());
   const labelMode = useLabelMode();
 
@@ -196,15 +199,30 @@ export default function TranskripPage() {
       setMainIdx(-1);
       return;
     }
-    const q = quantize(tampil, bpm);
     setMemutar(true);
-    player.current.play(q, bpm, {
-      onNote: setMainIdx,
-      onEnd: () => {
-        setMemutar(false);
-        setMainIdx(-1);
-      },
-    });
+    if (pakaiWaktuAsli) {
+      // Waktu asli hasil deteksi, lengkap dengan jeda antar not — inilah yang
+      // sebenarnya terbaca. Kalau ini kedengeran beda dari lagunya, berarti
+      // deteksinya yang salah, bukan pemutarnya.
+      player.current.playTimed(
+        tampil.map((n) => ({ midi: n.midi, startMs: n.startMs, durMs: n.durMs })),
+        {
+          onNote: setMainIdx,
+          onEnd: () => {
+            setMemutar(false);
+            setMainIdx(-1);
+          },
+        }
+      );
+    } else {
+      player.current.play(quantize(tampil, bpm), bpm, {
+        onNote: setMainIdx,
+        onEnd: () => {
+          setMemutar(false);
+          setMainIdx(-1);
+        },
+      });
+    }
   };
 
   const simpan = () => {
@@ -427,9 +445,21 @@ export default function TranskripPage() {
             >
               {memutar ? "■ Stop" : "🎻 Dengar hasilnya"}
             </button>
+            <button
+              onClick={() => setPakaiWaktuAsli((v) => !v)}
+              className={`press rounded-full px-3 py-1.5 text-[11px] ${
+                pakaiWaktuAsli
+                  ? "bg-accent font-semibold text-background"
+                  : "bg-surface text-muted"
+              }`}
+              title="Waktu asli = persis seperti yang terdeteksi, lengkap dengan jedanya. Versi rapi = dibulatkan ke ketukan, enak buat latihan tapi bukan cerminan hasil deteksi."
+            >
+              {pakaiWaktuAsli ? "⏱️ waktu asli" : "🎼 versi rapi"}
+            </button>
             <span className="text-xs text-muted">
-              Dibunyiin pakai suara mirip biola, di tempo {bpm} BPM. Kalau ada
-              yang kedengeran nyasar, rapiin pakai setelan di bawah.
+              {pakaiWaktuAsli
+                ? "Dibunyiin persis seperti yang kebaca, lengkap sama jedanya. Kalau ini kedengeran beda dari lagunya, berarti deteksinya yang meleset — bukan pemutarnya."
+                : `Dibulatin ke ketukan di tempo ${bpm} BPM — enak buat latihan, tapi bukan cerminan hasil deteksi.`}
             </span>
           </div>
 
