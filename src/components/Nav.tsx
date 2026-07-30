@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/notasi", label: "Baca Not", emoji: "🎼" },
   { href: "/lagu", label: "Lagu", emoji: "🎵" },
   { href: "/partitur", label: "Partitur", emoji: "🎼" },
+  { href: "/duet", label: "Duet", emoji: "🎹" },
   { href: "/transkrip", label: "Lagu→Not", emoji: "🎹" },
   { href: "/rekam", label: "Rekam", emoji: "⏺️" },
   { href: "/postur", label: "Postur", emoji: "🧍" },
