@@ -20,6 +20,13 @@ import {
   type RawNote,
 } from "@/lib/transcribe";
 import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
+import Staff from "@/components/Staff";
+import {
+  KEY_NAMES,
+  MelodyPlayer,
+  guessKey,
+  snapToKey,
+} from "@/lib/melodyPlayer";
 
 // Ubah lagu jadi not biola.
 //
@@ -47,6 +54,17 @@ export default function TranskripPage() {
   const [pesan, setPesan] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [octave, setOctave] = useState(0);
+  // Pembersih: buang not super pendek + luruskan nada nyasar ke tangga nada.
+  const [minMs, setMinMs] = useState(120);
+  const [snap, setSnap] = useState(true);
+  const [mainIdx, setMainIdx] = useState(-1);
+  const [memutar, setMemutar] = useState(false);
+  const player = useRef(new MelodyPlayer());
+
+  useEffect(() => {
+    const p = player.current;
+    return () => p.stop();
+  }, []);
 
   // Meteran level + hitungan bacaan, biar kelihatan alatnya beneran denger.
   useEffect(() => {
@@ -141,8 +159,40 @@ export default function TranskripPage() {
     [listener, mode]
   );
 
-  const geser = (n: RawNote) => ({ ...n, midi: n.midi + octave * 12 });
-  const tampil = notes.map(geser).filter((n) => n.midi >= VIOLIN_LOW && n.midi <= VIOLIN_HIGH);
+  // Urutan pembersihan: buang not terlalu pendek dulu (itu paling sering
+  // cuma serangan bunyi, bukan not), baru geser oktaf, baru luruskan ke
+  // tangga nada — kalau dibalik, nada nyasar ikut memengaruhi tebakan kunci.
+  const cukupPanjang = notes.filter((n) => n.durMs >= minMs);
+  const digeser = cukupPanjang.map((n) => ({ ...n, midi: n.midi + octave * 12 }));
+  const kunci = digeser.length ? guessKey(digeser.map((n) => n.midi)) : 0;
+  const diluruskan = snap
+    ? snapToKey(digeser.map((n) => n.midi), kunci).map((midi, i) => ({
+        ...digeser[i],
+        midi,
+      }))
+    : digeser;
+  const tampil = diluruskan.filter(
+    (n) => n.midi >= VIOLIN_LOW && n.midi <= VIOLIN_HIGH
+  );
+  const dibuang = notes.length - tampil.length;
+
+  const dengarkan = () => {
+    if (memutar) {
+      player.current.stop();
+      setMemutar(false);
+      setMainIdx(-1);
+      return;
+    }
+    const q = quantize(tampil, bpm);
+    setMemutar(true);
+    player.current.play(q, bpm, {
+      onNote: setMainIdx,
+      onEnd: () => {
+        setMemutar(false);
+        setMainIdx(-1);
+      },
+    });
+  };
 
   const simpan = () => {
     if (tampil.length === 0) return;
@@ -330,25 +380,109 @@ export default function TranskripPage() {
             </div>
           </div>
 
-          <div className="max-h-64 overflow-y-auto rounded-lg bg-surface-2 p-3">
-            <div className="flex flex-wrap gap-1.5">
+          {/* Dengar dulu sebelum dilatih — telinga nangkep nada nyasar jauh
+              lebih cepat daripada mata baca daftar nama nada. */}
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 p-3">
+            <button
+              onClick={dengarkan}
+              className={`press rounded-full px-5 py-2 text-sm font-semibold ${
+                memutar
+                  ? "bg-bad text-background"
+                  : "bg-accent text-background hover:bg-accent-strong"
+              }`}
+            >
+              {memutar ? "■ Stop" : "🎻 Dengar hasilnya"}
+            </button>
+            <span className="text-xs text-muted">
+              Dibunyiin pakai suara mirip biola, di tempo {bpm} BPM. Kalau ada
+              yang kedengeran nyasar, rapiin pakai setelan di bawah.
+            </span>
+          </div>
+
+          {/* Not balok — jauh lebih kebaca daripada deretan nama nada */}
+          <div className="overflow-x-auto rounded-lg bg-surface-2 p-2">
+            <Staff
+              notes={quantize(tampil.slice(0, 64), bpm)}
+              current={mainIdx < 64 ? mainIdx : -1}
+            />
+            {tampil.length > 64 && (
+              <p className="px-2 pb-1 text-[11px] text-muted">
+                Ditampilkan 64 not pertama · semuanya ({tampil.length}) tetap
+                ikut kesimpen dan ikut dibunyikan.
+              </p>
+            )}
+          </div>
+
+          {/* Pembersih hasil */}
+          <div className="space-y-3 rounded-lg bg-surface-2 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium">
+                  Buang not lebih pendek dari {minMs} ms
+                </div>
+                <div className="text-[11px] text-muted">
+                  Not super pendek biasanya cuma suara serangan/derik, bukan nada
+                  beneran.
+                </div>
+              </div>
+              <input
+                type="range"
+                min={60}
+                max={400}
+                step={10}
+                value={minMs}
+                onChange={(e) => setMinMs(Number(e.target.value))}
+                className="w-40 accent-[var(--accent)]"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium">
+                  Luruskan ke tangga nada {KEY_NAMES[kunci]} mayor
+                </div>
+                <div className="max-w-sm text-[11px] text-muted">
+                  Nada yang meleset satu semitone hampir selalu salah deteksi,
+                  bukan not asli. Ini yang bikin hasilnya kedengeran musikal.
+                </div>
+              </div>
+              <button
+                onClick={() => setSnap((v) => !v)}
+                className={`press rounded-full px-4 py-1.5 text-xs ${
+                  snap
+                    ? "bg-accent font-semibold text-background"
+                    : "bg-surface text-muted"
+                }`}
+              >
+                {snap ? "nyala" : "mati"}
+              </button>
+            </div>
+
+            {dibuang > 0 && (
+              <p className="text-[11px] text-muted">
+                {dibuang} not dibuang sama saringan di atas.
+              </p>
+            )}
+          </div>
+
+          <details className="rounded-lg bg-surface-2 p-3">
+            <summary className="cursor-pointer text-xs text-muted">
+              lihat daftar nada + posisi jari
+            </summary>
+            <div className="mt-2 flex flex-wrap gap-1.5">
               {tampil.slice(0, 200).map((n, i) => (
                 <span
                   key={i}
                   title={`${fingerHint(n.midi)} · ${Math.round(n.durMs)} ms`}
-                  className="animate-slide-in rounded-md bg-surface px-2 py-1 text-xs"
-                  style={{ animationDelay: `${Math.min(i, 40) * 12}ms` }}
+                  className={`rounded-md px-2 py-1 text-xs ${
+                    i === mainIdx ? "bg-accent text-background" : "bg-surface"
+                  }`}
                 >
                   {midiToName(n.midi)}
                 </span>
               ))}
             </div>
-            {tampil.length > 200 && (
-              <p className="mt-2 text-[11px] text-muted">
-                …{tampil.length - 200} not lagi (semuanya ikut kesimpen)
-              </p>
-            )}
-          </div>
+          </details>
 
           <div className="flex flex-wrap items-center gap-2">
             <input
