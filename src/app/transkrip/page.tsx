@@ -334,58 +334,62 @@ export default function TranskripPage() {
         </div>
       )}
 
+      {/* Mesin dan fokus berlaku untuk SEMUA mode.
+          Dulu dua pilihan ini ditaruh di dalam cabang mode berkas, jadi begitu
+          user memilih mode tab (Spotify/YouTube) atau mic — mode yang justru
+          paling sering dipakai — tombol AI-nya hilang sama sekali dari layar.
+          Mesinnya sendiri tetap terpakai, tapi user tidak punya cara tahu
+          apalagi memilih. */}
+      <div className="mb-3 space-y-3 rounded-2xl border border-border-soft bg-surface p-4 text-center">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="text-xs text-muted">Mesin:</span>
+          {[
+            { v: "ai" as const, label: "🧠 AI (polifonik)" },
+            { v: "cepat" as const, label: "⚡ Cepat (nada tunggal)" },
+          ].map((m) => (
+            <button
+              key={m.v}
+              onClick={() => setMesin(m.v)}
+              className={`press rounded-full px-3 py-1.5 text-[11px] ${
+                mesin === m.v
+                  ? "bg-accent font-semibold text-background"
+                  : "bg-surface-2 text-muted hover:text-foreground"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <p className="mx-auto max-w-lg text-[11px] text-muted">
+          {mesin === "ai"
+            ? "Model saraf terlatih yang bisa misahin nada yang bunyi barengan — ini yang dipakai buat lagu beneran. Pertama kali dipakai, modelnya (895 KB) dimuat dulu, terus prosesnya beberapa detik per menit lagu. Gak butuh API key, gak ada audio yang keluar dari perangkat lu."
+            : "Pelacak nada tunggal. Ringan dan cepat, tapi cuma bener buat melodi solo — lagu band penuh bakal berantakan."}
+        </p>
+
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="text-xs text-muted">Fokus:</span>
+          {[
+            { v: "melodi" as const, label: "🎯 Melodi (buang bass & drum)" },
+            { v: "lebar" as const, label: "🌐 Semua nada" },
+          ].map((f) => (
+            <button
+              key={f.v}
+              onClick={() => setFokus(f.v)}
+              className={`press rounded-full px-3 py-1.5 text-[11px] ${
+                fokus === f.v
+                  ? "bg-accent font-semibold text-background"
+                  : "bg-surface-2 text-muted hover:text-foreground"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="rounded-2xl border border-border-soft bg-surface p-5">
         {mode === "berkas" ? (
           <div className="space-y-3 text-center">
-            {/* Mesin transkrip — ini penentu terbesar bagus-tidaknya hasil */}
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="text-xs text-muted">Mesin:</span>
-              {(
-                [
-                  { v: "ai" as const, label: "🧠 AI (polifonik)" },
-                  { v: "cepat" as const, label: "⚡ Cepat (nada tunggal)" },
-                ]
-              ).map((m) => (
-                <button
-                  key={m.v}
-                  onClick={() => setMesin(m.v)}
-                  className={`press rounded-full px-3 py-1.5 text-[11px] ${
-                    mesin === m.v
-                      ? "bg-accent font-semibold text-background"
-                      : "bg-surface-2 text-muted hover:text-foreground"
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <p className="mx-auto max-w-lg text-[11px] text-muted">
-              {mesin === "ai"
-                ? "Model saraf terlatih yang bisa misahin nada yang bunyi barengan — ini yang dipakai buat lagu beneran. Pertama kali dipakai, modelnya (895 KB) dimuat dulu, terus prosesnya beberapa detik per menit lagu. Gak butuh API key, gak ada audio yang keluar dari perangkat lu."
-                : "Pelacak nada tunggal. Ringan dan cepat, tapi cuma bener buat melodi solo — lagu band penuh bakal berantakan."}
-            </p>
-
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="text-xs text-muted">Fokus:</span>
-              {(
-                [
-                  { v: "melodi" as const, label: "🎯 Melodi (buang bass & drum)" },
-                  { v: "lebar" as const, label: "🌐 Semua nada" },
-                ]
-              ).map((f) => (
-                <button
-                  key={f.v}
-                  onClick={() => setFokus(f.v)}
-                  className={`press rounded-full px-3 py-1.5 text-[11px] ${
-                    fokus === f.v
-                      ? "bg-accent font-semibold text-background"
-                      : "bg-surface-2 text-muted hover:text-foreground"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
             <input
               type="file"
               accept="audio/*"
