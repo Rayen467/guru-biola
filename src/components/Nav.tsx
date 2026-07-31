@@ -18,6 +18,7 @@ const LINKS = [
   { href: "/partitur", label: "Partitur", emoji: "🎼" },
   { href: "/duet", label: "Duet", emoji: "🎹" },
   { href: "/transkrip", label: "Lagu→Not", emoji: "🎹" },
+  { href: "/gubah", label: "Gubah AI", emoji: "🪄" },
   { href: "/rekam", label: "Rekam", emoji: "⏺️" },
   { href: "/postur", label: "Postur", emoji: "🧍" },
   { href: "/bow", label: "Pegang Bow", emoji: "🏹" },
