@@ -20,6 +20,7 @@ import {
   type RawNote,
 } from "@/lib/transcribe";
 import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
+import { setBasicPitchPath, transcribeWithAi } from "@/lib/aiTranscribe";
 import Staff from "@/components/Staff";
 import LabelSwitch from "@/components/LabelSwitch";
 import { labelFor, useLabelMode } from "@/lib/noteLabel";
@@ -62,6 +63,14 @@ export default function TranskripPage() {
   // Wilayah nada yang dianggap melodi. Bass dan bass drum ada di bawah 180 Hz
   // dan cuma bikin pelacak nada bingung.
   const [fokus, setFokus] = useState<"melodi" | "lebar">("melodi");
+  // Mesin transkrip. AI = model saraf polifonik (Basic Pitch), jauh lebih
+  // tahan lagu rame. Cepat = pelacak nada tunggal, ringan tapi cuma cocok
+  // buat melodi solo.
+  const [mesin, setMesin] = useState<"ai" | "cepat">("ai");
+
+  useEffect(() => {
+    setBasicPitchPath(process.env.NEXT_PUBLIC_BASE_PATH ?? "");
+  }, []);
   const [mainIdx, setMainIdx] = useState(-1);
   const [memutar, setMemutar] = useState(false);
   // Bawaannya waktu asli: yang didengar harus sama persis dengan yang terdeteksi.
@@ -92,39 +101,67 @@ export default function TranskripPage() {
     };
   }, [listener]);
 
-  const olahBerkas = useCallback(async (file: File) => {
-    setBusy(true);
-    setPesan(null);
-    setNotes([]);
-    setProgress(0);
-    try {
-      const buf = await file.arrayBuffer();
-      const ctx = new AudioContext();
-      const audio = await ctx.decodeAudioData(buf);
-      await ctx.close();
-      const hasil = await transcribeBuffer(audio, {
-        onProgress: setProgress,
-        loHz: fokus === "melodi" ? 180 : 120,
-        // Jangan dipotong terlalu rendah: pelacak nada butuh beberapa harmonik
-        // buat memastikan nada dasarnya. Kalau harmonik ke-3 ikut kebuang, dia
-        // gampang salah tebak ke nada satu kuint di bawahnya.
-        hiHz: fokus === "melodi" ? 3200 : 5000,
-      });
+  const pesanKosong = (m: string) =>
+    m === "tab"
+      ? "Gak ada nada ketangkep. Paling sering: kotak 'Also share tab audio' belum dicentang, atau lagunya lagi gak diputar."
+      : "Gak ada nada ketangkep. Cek speakernya kekecilan, mic kejauhan, atau lagunya kebanyakan instrumen bareng.";
+
+  // Satu jalur olah untuk semua sumber: berkas yang dimuat maupun rekaman hasil
+  // mendengar tab/mic. Dulu jalurnya dua dan yang dari mendengar tidak kebagian
+  // mesin AI sama sekali.
+  const olahAudio = useCallback(
+    async (audio: AudioBuffer): Promise<number> => {
+      const hasil =
+        mesin === "ai"
+          ? await transcribeWithAi(audio, {
+              onProgress: setProgress,
+              minFreq: fokus === "melodi" ? 180 : 120,
+              maxFreq: fokus === "melodi" ? 2100 : 3000,
+            })
+          : await transcribeBuffer(audio, {
+              onProgress: setProgress,
+              loHz: fokus === "melodi" ? 180 : 120,
+              // Jangan dipotong terlalu rendah: pelacak nada butuh beberapa
+              // harmonik buat memastikan nada dasarnya. Kalau harmonik ke-3
+              // ikut kebuang, dia gampang salah tebak ke nada satu kuint di
+              // bawahnya.
+              hiHz: fokus === "melodi" ? 3200 : 5000,
+            });
       setNotes(hasil);
       setBpm(guessBpm(hasil));
-      setJudul(file.name.replace(/\.[^.]+$/, ""));
       setAnalysis(buildAnalysis(hasil, audio.duration));
-      if (hasil.length === 0) {
-        setPesan(
-          "Gak ada nada tunggal yang kebaca. Biasanya karena lagunya rame (drum + bass + gitar bareng) — alat ini cuma bisa ngikutin satu nada. Coba bagian solo atau lagu yang lebih sepi."
-        );
+      return hasil.length;
+    },
+    [mesin, fokus]
+  );
+
+  // Deps-nya WAJIB ikut mesin & fokus. Sebelumnya kosong, jadi pilihan mesin
+  // yang diganti user tidak pernah terpakai — yang jalan selalu nilai awalnya.
+  const olahBerkas = useCallback(
+    async (file: File) => {
+      setBusy(true);
+      setPesan(null);
+      setNotes([]);
+      setProgress(0);
+      try {
+        const buf = await file.arrayBuffer();
+        const ctx = new AudioContext();
+        const audio = await ctx.decodeAudioData(buf);
+        await ctx.close();
+        setJudul(file.name.replace(/\.[^.]+$/, ""));
+        if ((await olahAudio(audio)) === 0) {
+          setPesan(
+            "Gak ada nada tunggal yang kebaca. Biasanya karena lagunya rame (drum + bass + gitar bareng) — alat ini cuma bisa ngikutin satu nada. Coba bagian solo atau lagu yang lebih sepi."
+          );
+        }
+      } catch (e) {
+        setPesan("Gagal baca berkasnya: " + String(e));
+      } finally {
+        setBusy(false);
       }
-    } catch (e) {
-      setPesan("Gagal baca berkasnya: " + String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+    },
+    [olahAudio]
+  );
 
   const mulaiDengar = async () => {
     setNotes([]);
@@ -151,28 +188,46 @@ export default function TranskripPage() {
   };
 
   const selesai = useCallback(
-    (l?: Listener) => {
+    async (l?: Listener) => {
       const target = l ?? listener;
       if (!target) return;
       const frames = target.stop();
       setListener(null);
-      // Jalur pembersih yang sama persis dengan mode berkas: saring lompatan,
-      // koreksi setelan tuning rekaman, benerin lompat oktaf, baru gabung.
-      const hasil = finishFrames(frames);
-      setNotes(hasil);
-      setBpm(guessBpm(hasil));
-      setAnalysis(
-        buildAnalysis(hasil, frames.length ? frames[frames.length - 1].t / 1000 : 0)
-      );
-      if (hasil.length === 0) {
-        setPesan(
-          mode === "tab"
-            ? "Gak ada nada ketangkep. Paling sering: kotak 'Also share tab audio' belum dicentang, atau lagunya lagi gak diputar."
-            : "Gak ada nada ketangkep. Cek speakernya kekecilan, mic kejauhan, atau lagunya kebanyakan instrumen bareng."
+      setBusy(true);
+      setProgress(0);
+      try {
+        // Yang dipakai adalah REKAMANNYA, bukan bacaan langsung di layar.
+        // Sepanjang lagu diputar, tab ini pasti ditinggal (lagunya kan di tab
+        // Spotify/YouTube), dan browser membekukan loop layar tab yang tidak
+        // kelihatan. Rekaman tidak ikut beku, jadi cuma dia yang utuh.
+        const blob = await target.rekaman();
+        if (blob && blob.size > 0) {
+          const ctx = new AudioContext();
+          const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
+          await ctx.close();
+          if ((await olahAudio(audio)) === 0) setPesan(pesanKosong(mode));
+          return;
+        }
+
+        // Browser tanpa MediaRecorder: terpaksa pakai bacaan layar, dengan
+        // semua keterbatasannya.
+        const hasil = finishFrames(frames);
+        setNotes(hasil);
+        setBpm(guessBpm(hasil));
+        setAnalysis(
+          buildAnalysis(
+            hasil,
+            frames.length ? frames[frames.length - 1].t / 1000 : 0
+          )
         );
+        if (hasil.length === 0) setPesan(pesanKosong(mode));
+      } catch (e) {
+        setPesan("Gagal ngolah rekamannya: " + String(e));
+      } finally {
+        setBusy(false);
       }
     },
-    [listener, mode]
+    [listener, mode, olahAudio]
   );
 
   // Urutan pembersihan: buang not terlalu pendek dulu (itu paling sering
@@ -282,6 +337,34 @@ export default function TranskripPage() {
       <div className="rounded-2xl border border-border-soft bg-surface p-5">
         {mode === "berkas" ? (
           <div className="space-y-3 text-center">
+            {/* Mesin transkrip — ini penentu terbesar bagus-tidaknya hasil */}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="text-xs text-muted">Mesin:</span>
+              {(
+                [
+                  { v: "ai" as const, label: "🧠 AI (polifonik)" },
+                  { v: "cepat" as const, label: "⚡ Cepat (nada tunggal)" },
+                ]
+              ).map((m) => (
+                <button
+                  key={m.v}
+                  onClick={() => setMesin(m.v)}
+                  className={`press rounded-full px-3 py-1.5 text-[11px] ${
+                    mesin === m.v
+                      ? "bg-accent font-semibold text-background"
+                      : "bg-surface-2 text-muted hover:text-foreground"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <p className="mx-auto max-w-lg text-[11px] text-muted">
+              {mesin === "ai"
+                ? "Model saraf terlatih yang bisa misahin nada yang bunyi barengan — ini yang dipakai buat lagu beneran. Pertama kali dipakai, modelnya (895 KB) dimuat dulu, terus prosesnya beberapa detik per menit lagu. Gak butuh API key, gak ada audio yang keluar dari perangkat lu."
+                : "Pelacak nada tunggal. Ringan dan cepat, tapi cuma bener buat melodi solo — lagu band penuh bakal berantakan."}
+            </p>
+
             <div className="flex flex-wrap items-center justify-center gap-2">
               <span className="text-xs text-muted">Fokus:</span>
               {(
@@ -382,8 +465,13 @@ export default function TranskripPage() {
                   ))}
                 </div>
                 <p className="text-xs text-accent-strong">
-                  Lagi nangkep… {jumlahFrame} bacaan
+                  Lagi ngerekam… {jumlahFrame} bacaan
                   {level < 0.02 && " · suaranya belum kedengeran"}
+                </p>
+                <p className="mt-1 text-[11px] text-muted">
+                  Silakan pindah ke tab lagunya. Rekamannya jalan terus —
+                  meteran dan angka di atas ini memang berhenti selama tab ini
+                  ditinggal, itu wajar dan gak ngaruh ke hasil.
                 </p>
               </div>
             )}

@@ -27,6 +27,9 @@ export interface Listener {
   frames: Frame[];
   stop: () => Frame[];
   level: () => number; // 0..1, buat meteran di layar
+  // Rekaman mentah selama mendengar. Ini yang dipakai untuk hasil akhir —
+  // baca panjang lebar kenapa di komentar rekaman di bawah.
+  rekaman: () => Promise<Blob | null>;
 }
 
 // Minta izin berbagi audio TAB. Spesifikasi mewajibkan video ikut diminta,
@@ -84,6 +87,36 @@ export function listenFrames(stream: MediaStream): Listener {
   lp.frequency.value = 3200;
   source.connect(hp1).connect(hp2).connect(lp).connect(analyser);
 
+  // === Rekaman: inilah sumber hasil yang sebenarnya ===
+  //
+  // Loop di bawah digerakkan requestAnimationFrame, dan browser MENGHENTIKAN
+  // rAF sepenuhnya begitu tabnya tidak kelihatan. Untuk mode tab, itu fatal:
+  // lagunya kan diputar di tab Spotify/YouTube, artinya tab aplikasi ini pasti
+  // ditinggal — dan selama ditinggal, tidak ada satu pun nada yang dianalisis.
+  // Gejalanya persis seperti yang dilaporkan: seolah semuanya baru terbaca
+  // setelah balik ke tab ini, dan pencacahnya meloncat ke ribuan (itu cuma rAF
+  // jalan lagi 60×/detik, 1000 frame ≈ 17 detik).
+  //
+  // MediaRecorder tidak ikut dibekukan — dia bagian dari pipa media, bukan
+  // penggambar layar. Jadi audionya direkam utuh, lalu dianalisis sesudah
+  // berhenti. Untung sampingannya: analisis pasca-rekam boleh pakai mesin AI
+  // yang butuh seluruh audio sekaligus, jadi hasilnya malah lebih akurat.
+  //
+  // Loop rAF tetap ada, tapi tugasnya turun jadi cuma penggerak meteran dan
+  // pratinjau di layar. Kalau beku saat tab ditinggal, tidak ada yang hilang.
+  const potongan: Blob[] = [];
+  let recorder: MediaRecorder | null = null;
+  try {
+    recorder = new MediaRecorder(new MediaStream(stream.getAudioTracks()));
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) potongan.push(e.data);
+    };
+    recorder.start(1000);
+  } catch {
+    // Browser tanpa MediaRecorder: mundur ke hasil dari loop layar saja.
+    recorder = null;
+  }
+
   const detector = PitchDetector.forFloat32Array(FRAME);
   detector.minVolumeDecibels = -55;
   const buf = new Float32Array(FRAME);
@@ -111,13 +144,26 @@ export function listenFrames(stream: MediaStream): Listener {
   };
   loop();
 
+  // Menunggu potongan terakhir keluar sebelum menyerahkan rekamannya. Tanpa ini
+  // detik-detik penghabisan lagu ikut hilang.
+  const selesaiRekam = new Promise<void>((resolve) => {
+    if (!recorder) return resolve();
+    recorder.onstop = () => resolve();
+  });
+
   return {
     stream,
     frames,
     level: () => lastLevel,
+    rekaman: async () => {
+      await selesaiRekam;
+      if (potongan.length === 0) return null;
+      return new Blob(potongan, { type: potongan[0].type || "audio/webm" });
+    },
     stop: () => {
       running = false;
       cancelAnimationFrame(raf);
+      if (recorder && recorder.state !== "inactive") recorder.stop();
       stream.getTracks().forEach((t) => t.stop());
       ctx.close().catch(() => {});
       return frames;
