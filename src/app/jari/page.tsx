@@ -41,9 +41,33 @@ function bacaNada(teks: string): number[] {
     if (kelas < 0) continue;
     if (m[2] === "#") kelas += 1;
     if (m[2] === "b") kelas -= 1;
-    const oktaf = m[3] ? Number(m[3]) : oktafTerakhir;
-    oktafTerakhir = oktaf;
-    hasil.push((oktaf + 1) * 12 + kelas);
+
+    if (m[3]) {
+      const oktaf = Number(m[3]);
+      oktafTerakhir = oktaf;
+      hasil.push((oktaf + 1) * 12 + kelas);
+      continue;
+    }
+
+    // Tanpa angka oktaf, dipilih oktaf yang paling DEKAT ke nada sebelumnya.
+    //
+    // Kalau oktafnya sekadar diwarisi apa adanya, tangga nada yang diketik
+    // "G A B C D E F# G" jadi patah di C: C-nya jatuh satu oktaf di bawah B,
+    // melodinya terjun, dan penjariannya ikut ngaco ke senar G. Padahal yang
+    // dimaksud jelas naik terus. Memilih yang terdekat membereskan naik maupun
+    // turun tanpa perlu menulis angka apa pun.
+    const sebelum = hasil[hasil.length - 1];
+    if (sebelum === undefined) {
+      hasil.push((oktafTerakhir + 1) * 12 + kelas);
+      continue;
+    }
+    let terbaik = (oktafTerakhir + 1) * 12 + kelas;
+    for (let o = 0; o <= 8; o++) {
+      const calon = (o + 1) * 12 + kelas;
+      if (Math.abs(calon - sebelum) < Math.abs(terbaik - sebelum)) terbaik = calon;
+    }
+    oktafTerakhir = Math.floor(terbaik / 12) - 1;
+    hasil.push(terbaik);
   }
   return hasil;
 }
