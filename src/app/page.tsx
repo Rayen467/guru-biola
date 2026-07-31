@@ -38,9 +38,9 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-2">
+      <header className="aurora datang -mx-4 space-y-2 rounded-3xl px-4 py-6 sm:px-6">
         <h1 className="text-3xl font-bold">
-          Dari nol sampai <span className="title-drift">Paganini</span> 👹
+          Dari nol sampai <span className="teks-kilau">Paganini</span> 👹
         </h1>
         <p className="max-w-2xl text-muted">
           Ini guru privat biola lu. Buta nada? Gak bisa ngepasin senar? Justru
@@ -242,10 +242,10 @@ function Card({
   emoji: string;
 }) {
   return (
-    <li>
+    <li className="gulir-ungkap">
       <Link
         href={href}
-        className="lift press block h-full rounded-xl border border-border-soft bg-surface p-4 hover:border-accent"
+        className="angkat tekan-pegas block h-full rounded-xl border border-border-soft bg-surface p-4 hover:border-accent"
       >
         <div className="mb-2 flex items-center justify-between">
           <span className="animate-float inline-block text-2xl">{emoji}</span>

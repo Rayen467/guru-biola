@@ -14,6 +14,7 @@ import { labelFor, useLabelMode } from "@/lib/noteLabel";
 import { useSessionEval } from "@/lib/sessionEval";
 import SessionEval from "@/components/SessionEval";
 import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
+import LiveWave from "@/components/LiveWave";
 import {
   ukurBunyi,
   nilaiBunyi,
@@ -249,6 +250,10 @@ export default function SuaraPage() {
             <span className="listen-bar inline-block h-2 w-2 rounded-full bg-accent" />
           )}
         </div>
+        {/* Bentuk gelombangnya sendiri, bukan cuma tinggi batangnya. Gesekan
+            yang bergetar kelihatan di sini sebelum angkanya keluar. */}
+        <LiveWave stream={getStream()} active={active} height={88} />
+
         <div className="mt-3 space-y-3">
           <div>
             <div className="mb-1 flex justify-between text-[11px] text-muted">

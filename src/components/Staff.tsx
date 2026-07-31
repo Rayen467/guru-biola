@@ -178,6 +178,8 @@ function BarisParanada({
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+      {/* Paranadanya ditarik dari kiri ke kanan, satu per satu dari bawah.
+          Bukan sekadar hiasan: matanya jadi ikut menyapu ke arah baca. */}
       {[0, 1, 2, 3, 4].map((i) => (
         <line
           key={i}
@@ -188,6 +190,13 @@ function BarisParanada({
           stroke="var(--foreground)"
           strokeWidth="1"
           opacity="0.55"
+          className="gambar"
+          style={
+            {
+              "--panjang": W,
+              "--tunda": `${i * 55}ms`,
+            } as React.CSSProperties
+          }
         />
       ))}
 
@@ -370,7 +379,15 @@ function KunciG({ x, yG }: { x: number; yG: number }) {
   const awal = titik[0];
   const [ax, ay] = awal.split(",").map(Number);
   return (
-    <g stroke="var(--foreground)" fill="none" strokeWidth={2} strokeLinecap="round" opacity="0.85">
+    <g
+      stroke="var(--foreground)"
+      fill="none"
+      strokeWidth={2}
+      strokeLinecap="round"
+      opacity="0.85"
+      className="gambar"
+      style={{ "--panjang": 260, "--tunda": "180ms" } as React.CSSProperties}
+    >
       <polyline points={titik.join(" ")} />
       {/* batang naik dari pangkal spiral, melengkung ke puncak di atas paranada */}
       <path d={`M ${ax} ${ay} C ${ax + 10} ${ay - SP * 1.9}, ${x + 21} ${yG - SP * 3.4}, ${x + 14} ${yG - SP * 3.9}`} />
