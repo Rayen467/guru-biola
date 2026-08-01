@@ -13,7 +13,7 @@
 // Konsekuensinya juga berbeda dan harus dikatakan terus terang: yang ini bisa
 // SALAH INGAT. Transkrip bisa keliru mendengar, tapi tidak akan mengarang lagu.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Staff from "@/components/Staff";
 import LabelSwitch from "@/components/LabelSwitch";
 import AiSetup from "@/components/AiSetup";
@@ -43,7 +43,9 @@ export default function GubahPage() {
   const [tingkat, setTingkat] = useState<(typeof TINGKAT)[number]["v"]>("pemula");
   // Dua jalan ke AI, dan yang kedua ada justru karena yang pertama tidak selalu
   // masuk akal buat orangnya — lihat komentar panjang di bawah.
-  const [jalan, setJalan] = useState<"api" | "tempel">("tempel");
+  const [jalan, setJalan] = useState<"lokal" | "api" | "tempel">("lokal");
+  // Apakah jembatan Claude Code lokal sedang hidup. null = belum diperiksa.
+  const [jembatan, setJembatan] = useState<boolean | null>(null);
   const [tempelan, setTempelan] = useState("");
   const [tersalin, setTersalin] = useState(false);
   const [sibuk, setSibuk] = useState(false);
@@ -54,6 +56,24 @@ export default function GubahPage() {
   const player = useRef(new MelodyPlayer());
 
   const siap = !!ai.proxyUrl || !!sessionKey;
+
+  // Alamat jembatan lokal. 127.0.0.1, bukan localhost: sebagian browser
+  // menerjemahkan localhost ke ::1 lebih dulu, dan servernya cuma mendengar di
+  // IPv4 — gejalanya "gagal fetch" padahal jembatannya hidup.
+  const ALAMAT_LOKAL = "http://127.0.0.1:8787";
+
+  // Diperiksa saat halaman dibuka supaya orangnya tidak perlu menebak apakah
+  // jembatannya sudah jalan atau belum.
+  useEffect(() => {
+    let batal = false;
+    fetch(ALAMAT_LOKAL, { method: "GET" })
+      .then((r) => r.ok)
+      .then((ok) => !batal && setJembatan(ok))
+      .catch(() => !batal && setJembatan(false));
+    return () => {
+      batal = true;
+    };
+  }, []);
 
   const jalur = useMemo(
     () => (hasil ? jalurJari(hasil.not.map((n) => n.midi)) : []),
@@ -151,12 +171,6 @@ export default function GubahPage() {
     [judul]
   );
 
-  // Sekali klik: perintahnya disalin DAN claude.ai dibuka. Dua langkah yang
-  // dulu terpisah sebenarnya selalu dilakukan berurutan.
-  const salinLaluBuka = async () => {
-    await salinPerintah();
-    window.open("https://claude.ai/new", "_blank", "noopener,noreferrer");
-  };
 
   const buat = useCallback(async () => {
     const nama = judul.trim();
@@ -164,7 +178,7 @@ export default function GubahPage() {
       setError("Tulis dulu judul lagunya.");
       return;
     }
-    if (!siap) {
+    if (jalan === "api" && !siap) {
       setShowSetup(true);
       return;
     }
@@ -184,9 +198,12 @@ export default function GubahPage() {
         "Balas HANYA JSON sesuai bentuk yang sudah ditentukan.";
 
       const messages = [{ role: "user" as const, content: permintaan }];
-      const jawaban = ai.proxyUrl
-        ? await askProxy(ai.proxyUrl, PROMPT_GUBAH, messages)
-        : await askDirect(ai, sessionKey!, PROMPT_GUBAH, messages);
+      const jawaban =
+        jalan === "lokal"
+          ? await askProxy(ALAMAT_LOKAL, PROMPT_GUBAH, messages)
+          : ai.proxyUrl
+            ? await askProxy(ai.proxyUrl, PROMPT_GUBAH, messages)
+            : await askDirect(ai, sessionKey!, PROMPT_GUBAH, messages);
 
       const g = bacaGubahan(jawaban);
       if (!g) {
@@ -197,11 +214,20 @@ export default function GubahPage() {
       }
       setHasil(g);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const pesan = e instanceof Error ? e.message : String(e);
+      // "Failed to fetch" itu pesan browser yang tidak berarti apa-apa buat
+      // penggunanya. Di mode lokal, sebabnya hampir selalu satu: jembatannya
+      // belum dijalankan.
+      setError(
+        jalan === "lokal" && /failed to fetch|networkerror|load failed/i.test(pesan)
+          ? "Jembatannya belum jalan. Buka terminal di folder app-nya, jalankan: node bridge/claude-lokal.mjs"
+          : pesan
+      );
+      if (jalan === "lokal") setJembatan(false);
     } finally {
       setSibuk(false);
     }
-  }, [judul, tingkat, siap, ai, sessionKey]);
+  }, [judul, tingkat, siap, ai, sessionKey, jalan]);
 
   const putar = () => {
     if (!hasil) return;
@@ -257,7 +283,7 @@ export default function GubahPage() {
           placeholder="mis. Bengawan Solo, atau Twinkle Twinkle"
           className="min-w-56 flex-1 rounded-xl border border-border-soft bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
         />
-        {jalan === "api" && (
+        {(jalan === "api" || jalan === "lokal") && (
           <button
             onClick={buat}
             disabled={sibuk}
@@ -273,14 +299,24 @@ export default function GubahPage() {
         {(
           [
             {
+              v: "lokal" as const,
+              label: "⚡ Claude Code lokal (langganan lu)",
+              detail:
+                jembatan === true
+                  ? "jembatan hidup · sekali klik · nol biaya"
+                  : jembatan === false
+                    ? "jembatan belum jalan — lihat di bawah"
+                    : "sekali klik · nol biaya API",
+            },
+            {
               v: "tempel" as const,
-              label: "📋 Lewat langganan Claude Pro",
-              detail: "salin–tempel · nol biaya API",
+              label: "📋 Salin–tempel manual",
+              detail: "kalau ga mau jalanin apa-apa",
             },
             {
               v: "api" as const,
-              label: "🤖 Otomatis pakai API key",
-              detail: "sekali klik · pakai kredit API",
+              label: "🤖 API key",
+              detail: "pakai kredit API",
             },
           ]
         ).map((m) => (
@@ -316,6 +352,53 @@ export default function GubahPage() {
         ))}
       </div>
 
+      {jalan === "lokal" && (
+        <div className="animate-fade-up mt-4 rounded-2xl border border-accent/40 bg-accent/5 p-4">
+          <p className="text-sm font-semibold">
+            {jembatan === true
+              ? "✅ Jembatan hidup — tinggal pencet Gubah"
+              : "⚡ Pakai langganan Claude lu, tanpa API key"}
+          </p>
+          {jembatan !== true && (
+            <>
+              <p className="mt-1 text-xs text-muted">
+                Claude Code jalan pakai langganan lu. Jadi yang dijembatani
+                bukan langganannya, tapi Claude Code-nya: app manggil server
+                kecil di komputer lu, server itu manggil Claude Code. Nol kunci
+                API, nol beli token.
+              </p>
+              <p className="mt-2 text-xs font-semibold">Sekali doang, siapin:</p>
+              <ol className="mt-1 list-inside list-decimal space-y-1 text-xs text-muted">
+                <li>
+                  Login Claude Code: buka terminal, ketik <code>claude</code>,
+                  terus ketik <code>/login</code>.
+                </li>
+                <li>
+                  Jalanin jembatannya:
+                  <code className="mt-1 block rounded bg-surface-2 p-2 font-mono text-[11px]">
+                    node bridge/claude-lokal.mjs
+                  </code>
+                </li>
+                <li>Balik ke sini, pencet Gubah. Biarin terminalnya kebuka.</li>
+              </ol>
+            </>
+          )}
+          {jembatan === true && (
+            <p className="mt-1 text-xs text-muted">
+              Kalau pas dipencet muncul &quot;belum login&quot;: buka terminal,
+              ketik <code>claude</code>, lalu <code>/login</code>. Sekali doang.
+            </p>
+          )}
+          {/* Selalu kelihatan, bukan cuma waktu pemasangan: ini menyangkut
+              siapa saja yang bisa memakai langganannya. */}
+          <p className="mt-2 rounded-lg bg-surface p-2 text-[11px] text-muted">
+            🔒 Jembatannya cuma dengerin 127.0.0.1 (ga bisa dijangkau dari
+            jaringan) dan cuma nerima panggilan dari alamat app ini. Situs lain
+            yang kebetulan lu buka ga bisa nebeng langganan lu.
+          </p>
+        </div>
+      )}
+
       {jalan === "tempel" && (
         <div className="animate-fade-up mt-4 rounded-2xl border border-accent/40 bg-accent/5 p-4">
           <p className="text-sm font-semibold">
@@ -333,12 +416,14 @@ export default function GubahPage() {
             <li>Salin balik jawabannya, tempel di kotak bawah. Langsung jadi.</li>
           </ol>
 
+          {/* Tidak membuka tab sendiri. Tab yang tiba-tiba melompat itu
+              mengagetkan dan terasa seperti halaman kehilangan kendali. */}
           <button
-            onClick={salinLaluBuka}
+            onClick={salinPerintah}
             disabled={!judul.trim()}
             className="tekan-pegas angkat mt-3 rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
           >
-            {tersalin ? "✅ Kesalin — tinggal tempel di claude.ai" : "📋 Salin + buka claude.ai"}
+            {tersalin ? "✅ Kesalin — tempel di claude.ai" : "📋 Salin perintah"}
           </button>
           {!judul.trim() && (
             <p className="mt-1 text-[11px] text-bad">
