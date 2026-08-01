@@ -22,6 +22,7 @@ const LINKS = [
   { href: "/rekam", label: "Rekam", emoji: "⏺️" },
   { href: "/postur", label: "Postur", emoji: "🧍" },
   { href: "/bow", label: "Pegang Bow", emoji: "🏹" },
+  { href: "/zona", label: "Zona Busur", emoji: "📏" },
   { href: "/fingerboard", label: "Fingerboard", emoji: "🖐️" },
   { href: "/jari", label: "Saran Jari", emoji: "✋" },
   { href: "/vibrato", label: "Vibrato", emoji: "〰️" },
