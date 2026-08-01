@@ -19,6 +19,11 @@ import AnalysisCard, { type Analysis } from "@/components/AnalysisCard";
 import { analisaGeseran, WAJAR_GESER, type Cuplik, type HasilGeser } from "@/lib/shift";
 import { playTone } from "@/lib/tone";
 import { midiToFreq } from "@/lib/notes";
+import Fingerboard, { NAMA_SENAR } from "@/components/Fingerboard";
+
+// Nada senar kosong, urut G D A E — dipakai buat mengubah MIDI jadi "semiton
+// ke berapa dari nut" yang dimengerti gambar fingerboard.
+const SENAR_MIDI = [55, 62, 69, 76];
 
 const JEDA_SELESAI_MS = 300;
 
@@ -174,6 +179,8 @@ export default function GeserPage() {
     if (kumpul.current.length > 60 * 20) kumpul.current.shift();
   }, [freq, active, selesaikan]);
 
+  const senarIdx = Math.max(0, NAMA_SENAR.indexOf(latihan.senar));
+
   const rataMeleset =
     riwayat.length > 0
       ? Math.round(
@@ -256,21 +263,54 @@ export default function GeserPage() {
         </p>
       )}
 
-      <div className="mt-5 flex items-center justify-center gap-6 rounded-2xl border border-border-soft bg-surface p-5">
-        {[latihan.dari, latihan.ke].map((m, i) => (
-          <div key={i} className="text-center">
-            <div
-              className={`text-4xl font-bold ${
-                i === 1 ? "text-accent-strong" : "text-muted"
-              } ${active && i === 1 ? "animate-float" : ""}`}
-            >
-              {labelFor(m, labelMode)}
+      {/* Gambar leher biolanya, bukan cuma dua huruf.
+          Yang perlu dilihat murid itu JARAKNYA — seberapa jauh tangannya harus
+          pindah — dan jarak itu tidak bisa disampaikan tulisan "B → D". */}
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-6 rounded-2xl border border-border-soft bg-surface p-5">
+        <Fingerboard
+          titik={[
+            {
+              senar: senarIdx,
+              semiton: latihan.dari - SENAR_MIDI[senarIdx],
+              label: labelFor(latihan.dari, labelMode),
+              jenis: "mulai",
+            },
+            {
+              senar: senarIdx,
+              semiton: latihan.ke - SENAR_MIDI[senarIdx],
+              label: labelFor(latihan.ke, labelMode),
+              jenis: "tujuan",
+            },
+          ]}
+          geseran={{
+            senar: senarIdx,
+            dari: latihan.dari - SENAR_MIDI[senarIdx],
+            ke: latihan.ke - SENAR_MIDI[senarIdx],
+          }}
+        />
+        <div className="space-y-2 text-sm">
+          <div>
+            <span className="text-xs text-muted">Mulai dari</span>
+            <div className="text-3xl font-bold text-good">
+              {labelFor(latihan.dari, labelMode)}
             </div>
-            <div className="text-[11px] text-muted">{i === 0 ? "mulai" : "tujuan"}</div>
           </div>
-        ))}
-        <div className="text-2xl text-muted">
-          <span className={active ? "animate-wiggle inline-block" : ""}>↔️</span>
+          <div className="text-xl text-muted">
+            <span className={active ? "animate-wiggle inline-block" : ""}>↓</span>
+          </div>
+          <div>
+            <span className="text-xs text-muted">Mendarat di</span>
+            <div
+              className={`text-3xl font-bold text-accent-strong ${active ? "animate-float" : ""}`}
+            >
+              {labelFor(latihan.ke, labelMode)}
+            </div>
+          </div>
+          <p className="max-w-[190px] text-[11px] text-muted">
+            Garis hijau tipis = tempat stiker huruf di posisi 1. Perhatiin jarak
+            antar nada makin ke bawah makin RAPAT — itu sebabnya geser ke posisi
+            tinggi gampang kelewat.
+          </p>
         </div>
       </div>
 

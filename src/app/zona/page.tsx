@@ -91,22 +91,41 @@ export default function ZonaPage() {
             );
           })}
 
-          {/* stick busur */}
-          <line
-            x1={kiri - 22}
-            y1={bowY}
-            x2={kanan + 18}
-            y2={bowY}
-            stroke="var(--foreground)"
-            strokeWidth={2.5}
-            opacity={0.5}
+          {/* Busur digambar seperti busur beneran: stick yang sedikit melengkung
+              ke dalam, rambut yang lurus, frog bersegi di pangkal, sekrup
+              penyetel di belakangnya, dan kepala yang meruncing di ujung. */}
+          <path
+            d={`M ${kiri - 26} ${bowY - 9} Q ${(kiri + kanan) / 2} ${bowY - 20} ${kanan + 20} ${bowY - 11}`}
+            stroke="#8a5a2b"
+            strokeWidth={3.4}
+            fill="none"
+            strokeLinecap="round"
           />
-          {/* frog di kiri */}
-          <rect x={kiri - 34} y={bowY - 10} width={16} height={20} rx={3} fill="var(--foreground)" opacity={0.65} />
-          <text x={kiri - 26} y={bowY - 16} textAnchor="middle" fontSize={9} fill="var(--muted)">
+          <line
+            x1={kiri - 24}
+            y1={bowY - 6}
+            x2={kanan + 17}
+            y2={bowY - 9}
+            stroke="#e8dcc0"
+            strokeWidth={3}
+            opacity={0.9}
+          />
+          {/* frog + sekrup penyetel */}
+          <rect x={kiri - 32} y={bowY - 12} width={17} height={16} rx={2.5} fill="#2b2b2b" />
+          <rect x={kiri - 36} y={bowY - 8} width={5} height={8} rx={1.5} fill="#c9a227" />
+          <circle cx={kiri - 24} cy={bowY - 4} r={2} fill="#c9c9c9" />
+          {/* kepala busur */}
+          <path
+            d={`M ${kanan + 16} ${bowY - 14} L ${kanan + 23} ${bowY - 11} L ${kanan + 20} ${bowY - 4} Z`}
+            fill="#2b2b2b"
+          />
+          <text x={kiri - 24} y={bowY - 22} textAnchor="middle" fontSize={9} fill="var(--muted)">
             frog
           </text>
-          <text x={kanan + 14} y={bowY - 16} textAnchor="middle" fontSize={9} fill="var(--muted)">
+          <text x={kiri - 40} y={bowY + 14} textAnchor="middle" fontSize={8} fill="var(--muted)">
+            sekrup
+          </text>
+          <text x={kanan + 18} y={bowY - 22} textAnchor="middle" fontSize={9} fill="var(--muted)">
             ujung
           </text>
 
