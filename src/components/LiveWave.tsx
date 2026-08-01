@@ -46,16 +46,41 @@ export default function LiveWave({
     // kedutan terbaca sebagai "alatnya rusak", bukan sebagai suara.
     let halus: number[] = [];
 
+    // Warna diambil SEKALI dari CSS, bukan tiap gambar.
+    //
+    // Canvas tidak mengerti var(--accent) — memberikannya ke addColorStop
+    // melempar SyntaxError, dan karena lemparannya terjadi di dalam callback
+    // requestAnimationFrame, seluruh gambarnya mati diam-diam tanpa pesan apa
+    // pun di layar.
+    const gaya = getComputedStyle(canvas);
+    const ambil = (nama: string, cadangan: string) =>
+      gaya.getPropertyValue(nama).trim() || cadangan;
+    const warnaAksen = ambil("--accent", "#7aa2f7");
+    const warnaBaik = ambil("--good", "#7ad9a1");
+
     const gambar = () => {
       if (!jalan) return;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      // dpr dibatasi 1,5 dan ukurannya DIBULATKAN sebelum dibandingkan.
+      //
+      // Tanpa pembulatan, canvas.width (selalu bilangan bulat) tidak akan pernah
+      // sama dengan lebar × dpr kalau dpr-nya pecahan — misal 1,25 di Windows
+      // dengan penskalaan 125%. Akibatnya canvas dialokasikan ULANG enam puluh
+      // kali per detik, memori GPU membengkak, dan akhirnya proses penggambar
+      // browser mati: halamannya berubah jadi "This page couldn't load".
+      const dpr = Math.min(1.5, window.devicePixelRatio || 1);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
+      if (w <= 0 || h <= 0) {
+        raf = requestAnimationFrame(gambar);
+        return;
       }
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const lebarPiksel = Math.round(w * dpr);
+      const tinggiPiksel = Math.round(h * dpr);
+      if (canvas.width !== lebarPiksel || canvas.height !== tinggiPiksel) {
+        canvas.width = lebarPiksel;
+        canvas.height = tinggiPiksel;
+      }
+      g.setTransform(lebarPiksel / w, 0, 0, tinggiPiksel / h, 0, 0);
       g.clearRect(0, 0, w, h);
 
       an.getFloatTimeDomainData(buf);
@@ -82,8 +107,8 @@ export default function LiveWave({
 
       const gradasi = g.createLinearGradient(0, 0, w, 0);
       gradasi.addColorStop(0, "rgba(120,170,255,0.15)");
-      gradasi.addColorStop(0.5, "var(--accent)");
-      gradasi.addColorStop(1, "rgba(120,255,190,0.15)");
+      gradasi.addColorStop(0.5, warnaAksen);
+      gradasi.addColorStop(1, warnaBaik);
 
       // Pita: dua sisi cermin, diisi gradasi, lalu garis tepi terang.
       g.beginPath();
@@ -128,7 +153,19 @@ export default function LiveWave({
 
       raf = requestAnimationFrame(gambar);
     };
-    gambar();
+
+    // Kalau menggambar melempar, loop-nya berhenti tanpa jejak dan pitanya
+    // sekadar diam — kelihatan seperti mic yang tidak menangkap apa-apa.
+    // Dibungkus supaya sebabnya tercetak, bukan hilang.
+    const gambarAman = () => {
+      try {
+        gambar();
+      } catch (e) {
+        jalan = false;
+        console.error("LiveWave berhenti:", e);
+      }
+    };
+    gambarAman();
 
     return () => {
       jalan = false;
@@ -136,6 +173,10 @@ export default function LiveWave({
       ctx.close().catch(() => {});
     };
   }, [stream, active]);
+
+  // Canvas baru dibuat saat mic hidup. Kalau dibiarkan ada terus, browser tetap
+  // menyiapkan lapisan GPU untuknya padahal tidak ada yang digambar.
+  if (!active) return null;
 
   return (
     <canvas
