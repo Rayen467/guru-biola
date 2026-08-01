@@ -101,17 +101,61 @@ export default function GubahPage() {
     }
   };
 
-  const bacaTempelan = () => {
-    setError(null);
-    const g = bacaGubahan(tempelan);
-    if (!g) {
-      setError(
-        "Yang ditempel gak kebaca jadi not. Pastiin yang lu copy itu bagian JSON-nya (yang diawali { dan diakhiri }), boleh sekalian sama tulisan lainnya."
-      );
-      return;
-    }
-    setHasil(g);
-    setMainIdx(-1);
+  const bacaTempelan = useCallback(
+    (teks: string) => {
+      const isi = teks.trim();
+      if (!isi) return;
+
+      // Perintahnya sendiri ditempel balik ke sini. Ini bukan kasus aneh —
+      // orangnya baru saja menyalin perintah itu, jadi isi papan salinnya
+      // memang itu, dan kotak tempelan ada tepat di bawah tombol salin.
+      // Pesannya harus menyebut persis apa yang terjadi, bukan "gak kebaca".
+      if (/Kamu penata musik untuk biola|Balas HANYA JSON/i.test(isi)) {
+        setError(
+          "Itu PERINTAHNYA yang kebalik ketempel — bukan jawabannya. Alurnya: perintah tadi ditempel dulu di claude.ai, dikirim, baru BALASAN Claude yang lu copy ke sini."
+        );
+        return;
+      }
+
+      // Kesalahan yang paling sering terjadi, dan memang salah rancangan awal:
+      // judul lagunya diketik di kotak tempelan, bukan di kotak judul. Dua
+      // kotak teks tanpa pembeda yang jelas memang menjebak. Jadi kalau yang
+      // masuk kelihatan seperti judul — pendek dan tanpa kurung kurawal —
+      // orangnya diberi tahu persis harus ke mana, bukan disuruh menebak.
+      if (!isi.includes("{")) {
+        if (isi.length < 80) {
+          setError(
+            `"${isi.slice(0, 40)}" kayaknya judul lagu, bukan jawaban Claude. Judulnya ditulis di kotak paling atas ya — kotak ini buat nempel balasan dari claude.ai.`
+          );
+          // Sekalian dipindahkan, biar tidak perlu mengetik ulang.
+          if (!judul.trim()) setJudul(isi);
+          return;
+        }
+        setError(
+          "Gak nemu JSON di situ. Yang perlu di-copy dari Claude itu bagian yang diawali { dan diakhiri } — boleh sekalian sama tulisan di sekitarnya."
+        );
+        return;
+      }
+
+      const g = bacaGubahan(isi);
+      if (!g) {
+        setError(
+          "JSON-nya kebaca tapi isinya gak nyambung jadi not. Coba minta Claude balas ULANG cuma JSON-nya aja, tanpa penjelasan."
+        );
+        return;
+      }
+      setError(null);
+      setHasil(g);
+      setMainIdx(-1);
+    },
+    [judul]
+  );
+
+  // Sekali klik: perintahnya disalin DAN claude.ai dibuka. Dua langkah yang
+  // dulu terpisah sebenarnya selalu dilakukan berurutan.
+  const salinLaluBuka = async () => {
+    await salinPerintah();
+    window.open("https://claude.ai/new", "_blank", "noopener,noreferrer");
   };
 
   const buat = useCallback(async () => {
@@ -202,7 +246,10 @@ export default function GubahPage() {
         perlu mic.
       </p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <label className="mt-4 block text-xs font-semibold text-accent-strong">
+        1️⃣ Judul lagunya
+      </label>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
         <input
           value={judul}
           onChange={(e) => setJudul(e.target.value)}
@@ -210,20 +257,13 @@ export default function GubahPage() {
           placeholder="mis. Bengawan Solo, atau Twinkle Twinkle"
           className="min-w-56 flex-1 rounded-xl border border-border-soft bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
         />
-        {jalan === "api" ? (
+        {jalan === "api" && (
           <button
             onClick={buat}
             disabled={sibuk}
-            className="press lift rounded-full bg-accent px-6 py-2.5 font-semibold text-background transition-colors hover:bg-accent-strong disabled:opacity-60"
+            className="tekan-pegas angkat rounded-full bg-accent px-6 py-2.5 font-semibold text-background transition-colors hover:bg-accent-strong disabled:opacity-60"
           >
             {sibuk ? "✍️ Lagi digubah…" : "🪄 Gubah"}
-          </button>
-        ) : (
-          <button
-            onClick={salinPerintah}
-            className="press lift rounded-full bg-accent px-6 py-2.5 font-semibold text-background transition-colors hover:bg-accent-strong"
-          >
-            {tersalin ? "✅ Kesalin!" : "📋 Salin perintah"}
           </button>
         )}
         <LabelSwitch />
@@ -282,24 +322,29 @@ export default function GubahPage() {
             Pakai langganan Claude Pro lu — tanpa API key, tanpa beli token
           </p>
           <ol className="mt-2 list-inside list-decimal space-y-1 text-xs text-muted">
-            <li>Tulis judul lagunya di atas, pilih tingkatnya.</li>
             <li>
-              Pencet <b>Salin perintah</b>.
+              Tulis judul lagunya di <b>kotak paling atas</b>, pilih tingkatnya.
             </li>
             <li>
-              Buka{" "}
-              <a
-                href="https://claude.ai/new"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-accent-strong underline"
-              >
-                claude.ai
-              </a>{" "}
-              (yang udah login langganan lu), tempel, kirim.
+              Pencet tombol di bawah ini — perintahnya kesalin dan claude.ai
+              kebuka sekalian.
             </li>
-            <li>Salin balik jawabannya, tempel di kotak bawah ini.</li>
+            <li>Di claude.ai: tempel (Ctrl+V), kirim.</li>
+            <li>Salin balik jawabannya, tempel di kotak bawah. Langsung jadi.</li>
           </ol>
+
+          <button
+            onClick={salinLaluBuka}
+            disabled={!judul.trim()}
+            className="tekan-pegas angkat mt-3 rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
+          >
+            {tersalin ? "✅ Kesalin — tinggal tempel di claude.ai" : "📋 Salin + buka claude.ai"}
+          </button>
+          {!judul.trim() && (
+            <p className="mt-1 text-[11px] text-bad">
+              Isi dulu judul lagunya di kotak paling atas.
+            </p>
+          )}
           <p className="mt-2 rounded-lg bg-surface p-2 text-[11px] text-muted">
             Kenapa harus manual: langganan Pro itu buat claude.ai, sedangkan API
             itu produk terpisah dengan tagihan sendiri — ga ada kunci langganan
@@ -308,20 +353,41 @@ export default function GubahPage() {
             bow, partitur, sama pemutarannya.
           </p>
 
-          <textarea
-            value={tempelan}
-            onChange={(e) => setTempelan(e.target.value)}
-            rows={4}
-            placeholder="Tempel jawaban dari Claude di sini…"
-            className="mt-3 w-full rounded-xl border border-border-soft bg-surface p-3 font-mono text-xs outline-none focus:border-accent"
-          />
-          <button
-            onClick={bacaTempelan}
-            disabled={!tempelan.trim()}
-            className="press mt-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-background disabled:opacity-50"
-          >
-            🎼 Jadikan partitur
-          </button>
+          <div className="mt-3 rounded-xl border border-border-soft bg-surface p-3">
+            <label className="block text-xs font-semibold">
+              ⬇️ Kotak ini buat NEMPEL BALASAN CLAUDE
+              <span className="ml-1 font-normal text-muted">
+                — bukan judul lagu. Judulnya di kotak paling atas.
+              </span>
+            </label>
+            <textarea
+              value={tempelan}
+              onChange={(e) => {
+                setTempelan(e.target.value);
+                // Langsung dibaca begitu ditempel — tidak perlu pencet tombol
+                // lagi. Tombolnya tetap ada buat yang mengetik manual.
+                if (e.target.value.includes("{")) bacaTempelan(e.target.value);
+              }}
+              onPaste={(e) => {
+                const teks = e.clipboardData.getData("text");
+                if (teks) {
+                  e.preventDefault();
+                  setTempelan(teks);
+                  bacaTempelan(teks);
+                }
+              }}
+              rows={4}
+              placeholder='Tempel di sini, contoh: {"judul":"...","not":[...]}'
+              className="mt-2 w-full rounded-lg border border-border-soft bg-background p-3 font-mono text-xs outline-none focus:border-accent"
+            />
+            <button
+              onClick={() => bacaTempelan(tempelan)}
+              disabled={!tempelan.trim()}
+              className="tekan-pegas mt-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-background disabled:opacity-50"
+            >
+              🎼 Jadikan partitur
+            </button>
+          </div>
         </div>
       )}
 
